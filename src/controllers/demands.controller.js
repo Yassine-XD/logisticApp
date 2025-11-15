@@ -1,47 +1,51 @@
-const service = require("../services/demands.service");
+// src/controllers/demands.controller.js
+const { listDemands } = require("../services/demands.service");
 
-exports.list = async (req, res, next) => {
+
+/**
+ * GET /demands
+ * Query params:
+ *   - estadoCod: "EN_CURSO,ASIGNADA,EN_TRANSITO"
+ *   - from: "2025-11-01"
+ *   - to: "2025-11-11"
+ *   - page: number
+ *   - limit: number
+ *   - sortBy: "fechaPeticion" | "fechaMaxima" | "kgSolicitadosEstimados"
+ *   - sortDir: "asc" | "desc"
+ */
+async function getDemands(req, res, next) {
   try {
-    const items = await service.list(req.query);
-    res.json(items);
+    const {
+      estadoCod,
+      from,
+      to,
+      page,
+      limit,
+      sortBy,
+      sortDir,
+    } = req.query;
+
+    let estados = undefined;
+    if (estadoCod) {
+      estados = estadoCod.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+
+    const result = await listDemands({
+      estados,
+      from,
+      to,
+      page,
+      limit,
+      sortBy,
+      sortDir,
+    });
+
+    res.json(result);
   } catch (err) {
     next(err);
   }
-};
+}
 
-exports.getById = async (req, res, next) => {
-  try {
-    const item = await service.getById(req.params.id);
-    if (!item) return res.status(404).json({ error: "Not found" });
-    res.json(item);
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.create = async (req, res, next) => {
-  try {
-    const created = await service.create(req.body);
-    res.status(201).json(created);
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.update = async (req, res, next) => {
-  try {
-    const updated = await service.update(req.params.id, req.body);
-    res.json(updated);
-  } catch (err) {
-    next(err);
-  }
-};
-
-exports.remove = async (req, res, next) => {
-  try {
-    await service.remove(req.params.id);
-    res.status(204).end();
-  } catch (err) {
-    next(err);
-  }
+module.exports = {
+  getDemands,
 };

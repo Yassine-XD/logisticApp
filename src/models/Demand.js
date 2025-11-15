@@ -1,29 +1,43 @@
+// src/models/Demand.js
 const mongoose = require("mongoose");
+const { Schema } = mongoose;
 
-const DemandSchema = new mongoose.Schema(
+const DemandSchema = new Schema(
   {
-    externalId: { type: String, index: true },
-    pickup: {
-      address: String,
-      location: {
-        type: { type: String, enum: ["Point"], default: "Point" },
-        coordinates: { type: [Number], default: [0, 0] },
-      },
-    },
-    dropoff: {
-      address: String,
-      location: {
-        type: { type: String, enum: ["Point"], default: "Point" },
-        coordinates: { type: [Number], default: [0, 0] },
-      },
-    },
-    status: { type: String, default: "pending" },
-    metadata: Object,
+    signusId: { type: Number, unique: true, index: true },  // codigo
+
+    estadoCod: { type: String, index: true },
+    estado: String,
+
+    // PGNU code from Signus
+    codigoPgnu: { type: String, index: true },
+    nombrePgnu: String,
+    telefonoPgnu: String,
+
+    latitud: Number,
+    longitud: Number,
+    direccion: String,
+    codigoPostal: String,
+    municipio: String,
+    provincia: String,
+    comunidad: String,
+    pais: String,
+
+    kgSolicitadosEstimados: Number,
+    unidadesSolicitadas: Number,
+
+    fechaPeticion: { type: Date, index: true },
+    fechaMaxima: { type: Date, index: true },
+    fechaRealRecogida: Date,
+
+    observacionesPeticion: String,
+
+    // 🔹 link to Garage master (optional, we can backfill later)
+    garage: { type: Schema.Types.ObjectId, ref: "Garage" },
+
+    raw: { type: Object },
   },
   { timestamps: true }
 );
-
-DemandSchema.index({ "pickup.location": "2dsphere" });
-DemandSchema.index({ "dropoff.location": "2dsphere" });
 
 module.exports = mongoose.model("Demand", DemandSchema);

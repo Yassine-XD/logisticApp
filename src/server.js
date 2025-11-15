@@ -1,31 +1,25 @@
-const http = require("http");
+// src/server.js
 const mongoose = require("mongoose");
 const app = require("./app");
-const config = require("./config");
-const logger = require("./utils/logger");
-const syncJob = require("./jobs/syncSignusDemands.job");
+const config = require("./config")
+const { log } = require("./utils/logger");
+const { startDemandsSyncLoop } = require("./jobs/syncSignusDemands.job");
 
-const server = http.createServer(app);
+async function start() {
+  try {
+    await mongoose.connect(config.MONGO_URI);
+    log("Connected to MongoDB");
 
-mongoose
-  .connect(config.MONGO_URI, {})
-  .then(() => {
-    logger.info("Connected to MongoDB");
-    server.listen(config.PORT, () => {
-      logger.info(`Server listening on port ${config.PORT}`);
+    // start hourly Signus sync
+    startDemandsSyncLoop();
+
+    app.listen(config.PORT, () => {
+      log(`Server listening on port ${config.PORT}`);
     });
-    // start scheduled jobs
-    syncJob.start();
-  })
-  .catch((err) => {
-    logger.error("MongoDB connection error", err);
+  } catch (err) {
+    log("Failed to start server:", err);
     process.exit(1);
-  });
+  }
+}
 
-// graceful shutdown
-process.on("SIGINT", async () => {
-  logger.info("Shutting down...");
-  syncJob.stop();
-  await mongoose.disconnect();
-  server.close(() => process.exit(0));
-});
+start();

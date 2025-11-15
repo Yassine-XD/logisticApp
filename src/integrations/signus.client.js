@@ -1,26 +1,47 @@
+// src/integrations/signus.client.js
 const axios = require("axios");
-const config = require("../config");
-const logger = require("../utils/logger");
+const { log } = require("../utils/logger");
+require("dotenv").config({ path: "./.env" });
 
-const client = axios.create({
-  baseURL: config.SIGNUS_API_URL,
-  timeout: 5000,
-  headers: {
-    Authorization: `Bearer ${config.SIGNUS_API_KEY}`,
-    "Content-Type": "application/json",
-  },
-});
+const username = process.env.SIGNUS_USER;
+const password = process.env.SIGNUS_PASS;
 
-exports.fetchDemands = async () => {
-  if (!config.SIGNUS_API_URL) {
-    logger.warn("SIGNUS_API_URL not configured; returning empty list");
-    return [];
-  }
-  try {
-    const res = await client.get("/demands");
-    return Array.isArray(res.data) ? res.data : [];
-  } catch (err) {
-    logger.error("Error fetching demands from Signus", err.message || err);
-    return [];
-  }
+//calculate the date of - three months
+function dateMinus3Months() {
+  const today = new Date();
+
+  // clone date
+  const target = new Date(today);
+
+  // subtract 3 months
+  target.setMonth(target.getMonth() - 3);
+
+  // format YYYY-MM-DD
+  const year = target.getFullYear();
+  const month = String(target.getMonth() + 1).padStart(2, "0");
+  const day = String(target.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+async function fetchAlbRecsRaw() {
+  
+  ////////////////////////////////////////////
+  
+  const res = await axios.get("https://aplicacion.signus.es/api/rest/albRecs", {
+    auth: {
+      username: username,
+      password: password,
+    },
+    params: {
+      crcCod: "R0805",
+      estado: ["EN_CURSO", "ASIGNADA", "EN_TRANSITO"],
+      peticionDesde: dateMinus3Months(),
+    },
+  });
+  return res.data;
+}
+
+module.exports = {
+  fetchAlbRecsRaw,
 };

@@ -1,29 +1,60 @@
+// src/app.js
 const express = require("express");
-const morgan = require("morgan");
-const routes = require("./routes");
-const logger = require("./utils/logger");
-const ApiError = require("./utils/errors");
+const { log } = require("./utils/logger");
+
+// Route modules
+const healthRoutes = require("./routes/health.routes");
+const demandsRoutes = require("./routes/demands.routes");
+const driversRoutes = require("./routes/drivers.routes")
+const vehiclesRoutes = require("./routes/vehicles.routes")
+const planRoutes = require('./routes/plan.routes')
 
 const app = express();
 
-app.use(morgan("dev"));
+/**
+ * 1) Global middlewares
+ */
+
+// Parse JSON bodies
 app.use(express.json());
 
-app.use("/api", routes);
-
-app.get("/", (req, res) => res.json({ ok: true }));
-
-// 404
+// Simple request logger
 app.use((req, res, next) => {
+  log(`${req.method} ${req.originalUrl}`);
+  next();
+});
+
+/**
+ * 2) API routes (versionable prefix)
+ */
+
+const apiRouter = express.Router();
+
+// Attach feature routes
+apiRouter.use(healthRoutes);   // /health
+apiRouter.use(demandsRoutes);  // /demands
+apiRouter.use(driversRoutes);  // /drivers
+apiRouter.use(vehiclesRoutes); // /vehicles
+apiRouter.use(planRoutes);        // /plans
+// Prefix all API routes with /api
+app.use("/api", apiRouter);
+
+/**
+ * 3) 404 handler (for any route not matched above)
+ */
+app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-// error handler
+/**
+ * 4) Global error handler
+ */
 app.use((err, req, res, next) => {
-  logger.error(err);
+  log("Error:", err);
   const status = err.status || 500;
-  const message = err.message || "Internal Server Error";
-  res.status(status).json({ error: message });
+  res.status(status).json({
+    error: err.message || "Internal server error",
+  });
 });
 
 module.exports = app;
