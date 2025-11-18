@@ -30,6 +30,10 @@ const DriverSchema = new Schema(
       totalStops: { type: Number, default: 0 },
       reliabilityScore: { type: Number, default: 0 }, // 0–100
     },
+
+    // NEW:
+    maxDailyTours: { type: Number, default: 3 },
+    maxStopsPerTour: { type: Number, default: 8 },
   },
   { timestamps: true }
 );

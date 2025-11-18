@@ -6,8 +6,9 @@ const {
   createDriver,
   updateDriver,
   deleteDriver,
-  createDriversBulk
+  createDriversBulk,
 } = require("../controllers/drivers.controller");
+const { requestTour } = require("../controllers/tours.controller");
 
 const router = express.Router();
 
@@ -18,5 +19,8 @@ router.post("/drivers", createDriver);
 router.put("/drivers/:id", updateDriver);
 router.delete("/drivers/:id", deleteDriver);
 router.post("/drivers/bulk", createDriversBulk);
+
+// Driver asks for his next tour
+router.post("/drivers/me/tours/request", requestTour);
 
 module.exports = router;

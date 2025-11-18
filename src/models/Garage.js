@@ -2,11 +2,17 @@
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
+const TimeWindowSchema = new Schema({
+  dayOfWeek: { type: Number, min: 1, max: 7 }, // 1=Mon ... 7=Sun
+  start: { type: String }, // "08:30"
+  end: { type: String }, // "13:00"
+});
+
 const GarageSchema = new Schema(
   {
     // Signus identifiers
     signusCode: { type: String, required: true, unique: true, index: true }, // codigoPgnu, e.g. "G0803711"
-    name: { type: String, required: true },                                   // nombrePgnu
+    name: { type: String, required: true }, // nombrePgnu
     cif: { type: String },
     phone: { type: String },
 
@@ -19,9 +25,9 @@ const GarageSchema = new Schema(
     address: {
       street: String,
       postalCode: String,
-      city: String,        // localidad / municipio
+      city: String, // localidad / municipio
       province: String,
-      region: String,      // comunidad
+      region: String, // comunidad
       country: String,
     },
 
@@ -31,9 +37,9 @@ const GarageSchema = new Schema(
     // optional working hours (simple for MVP)
     timeWindows: [
       {
-        label: String,         // e.g. "L-V"
-        start: String,         // "08:30"
-        end: String,           // "18:30"
+        label: String, // e.g. "L-V"
+        start: String, // "08:30"
+        end: String, // "18:30"
       },
     ],
 
@@ -44,8 +50,9 @@ const GarageSchema = new Schema(
       cancellationRate: { type: Number, default: 0 },
       reliabilityScore: { type: Number, default: 0 }, // 0–100
     },
-
-    notes: String,
+    // NEW:
+    timeWindows: [TimeWindowSchema],
+    notes: { type: String },
   },
   { timestamps: true }
 );

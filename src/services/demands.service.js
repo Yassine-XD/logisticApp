@@ -88,7 +88,6 @@ async function upsertDemandsFromAlbRecs(albRecs) {
   return result;
 }
 
-
 function dateMinus3Months() {
   const today = new Date();
 
@@ -105,7 +104,6 @@ function dateMinus3Months() {
 
   return `${year}-${month}-${day}`;
 }
-
 
 /**
  * List demands from Mongo with filters.
@@ -132,8 +130,9 @@ async function listDemands(opts = {}) {
   const filter = {};
 
   // estados filter (estadoCod)
-  const statusList = (estados && estados.length ? estados : PLANNING_STATUSES)
-    .map((s) => s.toUpperCase());
+  const statusList = (
+    estados && estados.length ? estados : PLANNING_STATUSES
+  ).map((s) => s.toUpperCase());
 
   filter.estadoCod = { $in: statusList };
 
@@ -151,9 +150,11 @@ async function listDemands(opts = {}) {
   const sort = {
     [sortBy]: sortDir === "asc" ? 1 : -1,
   };
-
   const [items, total] = await Promise.all([
-    Demand.find(filter).sort(sort).skip(skip).limit(Number(limit)),
+    Demand.find({ estadoCod: { $in: ["EN_CURSO", "ASIGNADA", "EN_TRANSITO"] } })
+      .sort(sort)
+      .skip(skip)
+      .limit(Number(limit)),
     Demand.countDocuments(filter),
   ]);
 
@@ -179,7 +180,9 @@ async function getPlanningDemands({ date }) {
     .map((row) => {
       const kg = row.kgSolicitadosEstimados || 0;
 
-      const requestedAt = row.fechaPeticion ? new Date(row.fechaPeticion) : null;
+      const requestedAt = row.fechaPeticion
+        ? new Date(row.fechaPeticion)
+        : null;
       const deadlineAt = row.fechaMaxima ? new Date(row.fechaMaxima) : null;
 
       // age in days (how long since requested)
@@ -197,9 +200,9 @@ async function getPlanningDemands({ date }) {
       }
 
       // Normalize scores (cap at 30 days so extremely old doesn’t dominate)
-      const ageScore = Math.min(ageDays / 30, 1);               // 0..1 (older => closer to 1)
+      const ageScore = Math.min(ageDays / 30, 1); // 0..1 (older => closer to 1)
       const deadlineScore = 1 - Math.min(daysToDeadline / 30, 1); // 0..1 (sooner => closer to 1)
-      const weightScore = Math.min(kg / 3000, 1);               // 0..1 (more kg => closer to 1)
+      const weightScore = Math.min(kg / 3000, 1); // 0..1 (more kg => closer to 1)
 
       // Final priority 0–100 (tune weights as you like)
       const priority =
@@ -238,12 +241,9 @@ async function getPlanningDemands({ date }) {
   return demands;
 }
 
-
-
-
 module.exports = {
   normalizeAlbRec,
-  upsertDemandsFromAlbRecs,
   listDemands,
-  getPlanningDemands
+  getPlanningDemands,
+  upsertDemandsFromAlbRecs,
 };

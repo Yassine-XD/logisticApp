@@ -5,9 +5,10 @@ const { log } = require("./utils/logger");
 // Route modules
 const healthRoutes = require("./routes/health.routes");
 const demandsRoutes = require("./routes/demands.routes");
-const driversRoutes = require("./routes/drivers.routes")
-const vehiclesRoutes = require("./routes/vehicles.routes")
-const planRoutes = require('./routes/plan.routes')
+const driversRoutes = require("./routes/drivers.routes");
+const vehiclesRoutes = require("./routes/vehicles.routes");
+const planRoutes = require("./routes/plan.routes");
+const toursRoutes = require("./routes/tours.routes");
 
 const app = express();
 
@@ -31,11 +32,13 @@ app.use((req, res, next) => {
 const apiRouter = express.Router();
 
 // Attach feature routes
-apiRouter.use(healthRoutes);   // /health
-apiRouter.use(demandsRoutes);  // /demands
-apiRouter.use(driversRoutes);  // /drivers
+apiRouter.use(healthRoutes); // /health
+apiRouter.use(demandsRoutes); // /demands
+apiRouter.use(driversRoutes); // /drivers
 apiRouter.use(vehiclesRoutes); // /vehicles
-apiRouter.use(planRoutes);        // /plans
+apiRouter.use(planRoutes); // /plans
+apiRouter.use(toursRoutes); // /tours
+
 // Prefix all API routes with /api
 app.use("/api", apiRouter);
 
