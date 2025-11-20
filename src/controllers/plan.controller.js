@@ -1,12 +1,17 @@
+// src/controllers/plan.controller.js
 const Driver = require("../models/Driver");
-const { getPlanningDemands } = require("../services/ready.demands.service");
-const { saveGreedyTours } = require("../services/planning.service");
+const Vehicle = require("../models/Vehicle");
+const { getPlanningDemands } = require("../services/demands.service");
 const { log } = require("../utils/logger");
 
-const DEFAULT_TRUCK_CAPACITY_KG = 3200; // fallback if vehicle has no capacity
+const DEFAULT_TRUCK_CAPACITY_KG = 3200;
 
 // Haversine distance in km
 function distanceKm(a, b) {
+  if (!a || !b || !a.lat || !a.lng || !b.lat || !b.lng) {
+    return Infinity;
+  }
+
   const R = 6371; // earth radius km
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
   const dLng = ((b.lng - a.lng) * Math.PI) / 180;
@@ -18,7 +23,8 @@ function distanceKm(a, b) {
   const sinDLng = Math.sin(dLng / 2);
 
   const h =
-    sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+    sinDLat * sinDLat +
+    Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
 
   const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 
@@ -26,88 +32,69 @@ function distanceKm(a, b) {
 }
 
 /**
- * Core greedy algorithm
- * drivers: [{ id, name, capacityKg, start: {lat,lng}, maxStopsPerTour? }]
- * demands: [{ id, kg, lat, lng, priority, requestedAt, deadlineAt, ... }]
+ * FIX #10: Improved greedy algorithm with validation
+ * 
+ * Core greedy algorithm for multi-driver planning
+ * drivers: [{ id, name, capacityKg, start: {lat,lng} }]
+ * demands: [{ id, kg, lat, lng, priority }]
  */
 function buildGreedyTours(drivers, demands) {
   const remainingDemands = demands.map((d) => ({ ...d, assigned: false }));
   const tours = [];
-  const now = Date.now();
+
+  log(`🗺️  Planning for ${drivers.length} drivers, ${demands.length} demands`);
 
   for (const driver of drivers) {
     let remainingCapacity = driver.capacityKg || DEFAULT_TRUCK_CAPACITY_KG;
     let currentPos = driver.start;
     const stops = [];
     let totalDistanceKm = 0;
-    const maxStops = driver.maxStopsPerTour || Infinity;
+
+    log(`  🚚 Planning for driver: ${driver.name} (${remainingCapacity}kg capacity)`);
 
     while (true) {
-      // hard stop by max stops per tour
-      if (stops.length >= maxStops) break;
-
       let best = null;
+      let bestIndex = -1;
       let bestScore = Infinity;
 
-      remainingDemands.forEach((d) => {
+      remainingDemands.forEach((d, idx) => {
         if (d.assigned) return;
         if (d.kg > remainingCapacity) return;
+        
+        // FIX #10: Validate coordinates
         if (!d.lat || !d.lng) return;
 
         const dist = distanceKm(currentPos, { lat: d.lat, lng: d.lng });
+        
+        if (dist === Infinity) return;
 
-        // ---- URGENCY & AGE ----
-        const deadlineAt = d.deadlineAt ? new Date(d.deadlineAt) : null;
-        const requestedAt = d.requestedAt ? new Date(d.requestedAt) : null;
+        // Priority factor: 1..3 (higher priority => bigger factor)
+        const priority = d.priority || 0; // 0..100
+        const priorityFactor = 1 + priority / 50;
 
-        const daysToDeadline =
-          d.daysToDeadline ??
-          (deadlineAt ? (deadlineAt.getTime() - now) / 86400000 : 365);
-
-        const ageDays =
-          d.ageDays ??
-          (requestedAt ? (now - requestedAt.getTime()) / 86400000 : 0);
-
-        // Urgency factor: closer to expiry → higher factor
-        let urgencyFactor = 1;
-        if (daysToDeadline <= 0) urgencyFactor = 3.0; // overdue
-        else if (daysToDeadline <= 1)
-          urgencyFactor = 2.5; // expires today/tomorrow
-        else if (daysToDeadline <= 3) urgencyFactor = 2.0; // within 3 days
-        else if (daysToDeadline <= 7) urgencyFactor = 1.5; // within a week
-
-        // Age factor: older demands → more weight (cap at 30 days)
-        const cappedAge = Math.min(Math.max(ageDays, 0), 30); // 0..30
-        const ageFactor = 1 + cappedAge / 30; // 1..2
-
-        // Optional: extra business priority (0..100)
-        const rawPriority = d.priority || 0;
-        const priorityFactor = 1 + rawPriority / 100; // 1..2
-
-        // Final score: minimize this
-        // distance is the base, urgency/age/priority reduce the score
-        const score = dist / (urgencyFactor * ageFactor * priorityFactor);
+        // Final score = distance / priorityFactor
+        // Lower score is better (closer + higher priority)
+        const score = dist / priorityFactor;
 
         if (score < bestScore) {
           bestScore = score;
           best = d;
+          bestIndex = idx;
         }
       });
 
+      // No more feasible demands
       if (!best) break;
 
       best.assigned = true;
       remainingCapacity -= best.kg;
 
-      const legDistance = distanceKm(currentPos, {
-        lat: best.lat,
-        lng: best.lng,
-      });
+      const legDistance = distanceKm(currentPos, { lat: best.lat, lng: best.lng });
       totalDistanceKm += legDistance;
       currentPos = { lat: best.lat, lng: best.lng };
 
       stops.push({
-        demandId: best.id, // must be rec._id in ready.demands.service
+        demandId: best.id,
         signusCodigo: best.signusCodigo,
         garageId: best.garageId,
         garageName: best.garageName,
@@ -118,23 +105,18 @@ function buildGreedyTours(drivers, demands) {
         distanceFromPrevKm: Number(legDistance.toFixed(2)),
         requestedAt: best.requestedAt,
         deadlineAt: best.deadlineAt,
-        ageDays:
-          best.ageDays ??
-          (best.requestedAt
-            ? (now - new Date(best.requestedAt).getTime()) / 86400000
-            : null),
-        daysToDeadline:
-          best.daysToDeadline ??
-          (best.deadlineAt
-            ? (new Date(best.deadlineAt).getTime() - now) / 86400000
-            : null),
+        ageDays: best.ageDays,
+        daysToDeadline: best.daysToDeadline,
         priority: best.priority,
+
         contact: {
           phone: best.contactPhone,
         },
         address: best.address,
       });
     }
+
+    log(`    ✓ ${stops.length} stops, ${totalDistanceKm.toFixed(1)}km, ${remainingCapacity}kg remaining`);
 
     tours.push({
       driverId: driver.id,
@@ -143,45 +125,55 @@ function buildGreedyTours(drivers, demands) {
       date: driver.date,
       totalDistanceKm: Number(totalDistanceKm.toFixed(2)),
       totalStops: stops.length,
-      remainingCapacityKg: remainingCapacity,
+      remainingCapacityKg: Math.round(remainingCapacity),
       stops,
     });
   }
 
+  const assignedCount = remainingDemands.filter(d => d.assigned).length;
+  log(`✅ Planning complete: ${assignedCount}/${demands.length} demands assigned`);
+
   return tours;
 }
 
-// POST /api/plan/greedy
+/**
+ * POST /api/plan/greedy
+ * Body: { date, driverIds, depot? }
+ */
 async function planGreedy(req, res, next) {
   try {
     const {
-      date, // "2025-11-20"
-      driverIds, // [mongoId, mongoId]
-      depot, // optional: { lat, lng }
+      date,       // "2025-11-20"
+      driverIds,  // [mongoId, mongoId]
+      depot,      // optional: { lat, lng }
     } = req.body;
 
+    // Validation
     if (!date) {
       return res.status(400).json({ error: "date is required (YYYY-MM-DD)" });
     }
     if (!Array.isArray(driverIds) || driverIds.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "driverIds must be a non-empty array" });
+      return res.status(400).json({ error: "driverIds must be a non-empty array" });
     }
 
-    // 1) Load drivers (+ vehicles if needed)
-    const drivers = await Driver.find({ _id: { $in: driverIds } }).populate(
-      "vehicle"
-    );
+    log(`📅 Planning greedy tours for date: ${date}`);
+
+    // 1) Load drivers + vehicles
+    const drivers = await Driver.find({ 
+      _id: { $in: driverIds },
+      active: true 
+    }).populate("vehicle");
 
     if (!drivers.length) {
-      return res.status(404).json({ error: "No drivers found for given ids" });
+      return res.status(404).json({ 
+        error: "No active drivers found for given ids" 
+      });
     }
 
-    // default depot if none provided (use your CRC from Signus)
+    // Default depot (CRC location - replace with your actual coords)
     const defaultDepot = depot || {
-      lat: 41.573, // TODO: replace with real coords for C/ dels Blanquers 13
-      lng: 1.64,
+      lat: 41.6506, // Manresa approximate coordinates
+      lng: 1.8366,
     };
 
     const plannerDrivers = drivers.map((d) => ({
@@ -191,31 +183,42 @@ async function planGreedy(req, res, next) {
         d.vehicle && d.vehicle.capacityKg
           ? d.vehicle.capacityKg
           : DEFAULT_TRUCK_CAPACITY_KG,
-      start: defaultDepot,
+      start: d.homeBase?.lat && d.homeBase?.lng 
+        ? { lat: d.homeBase.lat, lng: d.homeBase.lng }
+        : defaultDepot,
       date,
-      maxStopsPerTour: d.maxStopsPerTour || undefined,
     }));
 
-    // 2) Load planning demands from Mongo (pre-filtered from SignusAlbRec)
+    log(`🚗 Loaded ${plannerDrivers.length} drivers`);
+
+    // 2) Load planning demands from Signus API
     const planningDemands = await getPlanningDemands({ date });
 
     if (!planningDemands.length) {
+      log("⚠️  No planning demands available");
       return res.status(200).json({
         date,
+        drivers: plannerDrivers.map((d) => ({
+          id: d.id,
+          name: d.name,
+          capacityKg: d.capacityKg,
+        })),
+        totalDemands: 0,
         tours: [],
         info: "No planning demands available for this date",
       });
     }
 
-    // 3) Build greedy tours in memory
-    const toursDraft = buildGreedyTours(plannerDrivers, planningDemands);
+    log(`📋 Loaded ${planningDemands.length} demands`);
 
-    // 4) Persist tours + mark demands as assigned
-    const savedTours = await saveGreedyTours(toursDraft);
+    // 3) Build greedy tours
+    const tours = buildGreedyTours(plannerDrivers, planningDemands);
 
-    log(
-      `Greedy planner built & saved ${savedTours.length} tours for ${plannerDrivers.length} drivers and ${planningDemands.length} demands`
-    );
+    // 4) Calculate statistics
+    const totalAssigned = tours.reduce((sum, t) => sum + t.totalStops, 0);
+    const totalDistance = tours.reduce((sum, t) => sum + t.totalDistanceKm, 0);
+
+    log(`✅ Greedy planner: ${totalAssigned}/${planningDemands.length} demands assigned, ${totalDistance.toFixed(1)}km total`);
 
     res.json({
       date,
@@ -223,12 +226,15 @@ async function planGreedy(req, res, next) {
         id: d.id,
         name: d.name,
         capacityKg: d.capacityKg,
-        maxStopsPerTour: d.maxStopsPerTour,
       })),
       totalDemands: planningDemands.length,
-      tours: savedTours,
+      assignedDemands: totalAssigned,
+      unassignedDemands: planningDemands.length - totalAssigned,
+      totalDistance: Number(totalDistance.toFixed(2)),
+      tours,
     });
   } catch (err) {
+    log(`❌ Error in planGreedy:`, err.message);
     next(err);
   }
 }

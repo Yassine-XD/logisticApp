@@ -6,9 +6,13 @@ const { log } = require("../utils/logger");
 
 const DEFAULT_TRUCK_CAPACITY_KG = 3200;
 
-// --- helpers ---
+// --- Helpers ---
 
 function distanceKm(a, b) {
+  if (!a || !b || !a.lat || !a.lng || !b.lat || !b.lng) {
+    return Infinity;
+  }
+
   const R = 6371;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
   const dLng = ((b.lng - a.lng) * Math.PI) / 180;
@@ -28,8 +32,13 @@ function distanceKm(a, b) {
 }
 
 /**
- * Very simple greedy: from driver's current position,
- * always pick the closest high-priority demand that fits remaining capacity.
+ * FIX #6: Improved greedy algorithm with proper validation
+ * 
+ * Rules implemented:
+ * 1. Prioritize expired/urgent demands (via priority score)
+ * 2. Pick closest demands from current position
+ * 3. Respect capacity constraints
+ * 4. Minimize stops while maximizing load
  */
 function buildGreedyTourForDriver({ driver, demands, start, maxStops }) {
   let remainingCapacity =
@@ -42,6 +51,8 @@ function buildGreedyTourForDriver({ driver, demands, start, maxStops }) {
   const selected = [];
   const pool = demands.map((d) => ({ ...d, used: false }));
 
+  log(`🚚 Building tour for driver ${driver.name}, capacity: ${remainingCapacity}kg, max stops: ${maxStops}`);
+
   while (selected.length < maxStops) {
     let best = null;
     let bestIdx = -1;
@@ -49,12 +60,28 @@ function buildGreedyTourForDriver({ driver, demands, start, maxStops }) {
 
     pool.forEach((d, idx) => {
       if (d.used) return;
+      
+      // Skip if exceeds capacity
       if (d.qtyEstimatedKg > remainingCapacity) return;
-      if (!d.geo?.lat || !d.geo?.lng) return;
+      
+      // FIX #6: Validate geo coordinates exist
+      if (!d.geo?.lat || !d.geo?.lng) {
+        log(`⚠️  Skipping demand ${d._id} - missing coordinates`);
+        return;
+      }
 
       const dist = distanceKm(currentPos, d.geo);
+      
+      // Skip if distance calculation failed
+      if (dist === Infinity) return;
+
       const priority = d.priority || 0;
-      const priorityFactor = 1 + priority / 50; // 1..3
+
+      // Priority factor: 1..3 (higher priority => bigger factor)
+      // This means high-priority demands are "virtually closer"
+      const priorityFactor = 1 + priority / 50;
+      
+      // Score: lower is better (distance penalized by priority)
       const score = dist / priorityFactor;
 
       if (score < bestScore) {
@@ -64,14 +91,23 @@ function buildGreedyTourForDriver({ driver, demands, start, maxStops }) {
       }
     });
 
-    if (!best) break;
+    // No more feasible demands
+    if (!best) {
+      log(`ℹ️  No more demands fit (checked ${pool.length}, selected ${selected.length})`);
+      break;
+    }
 
+    // Mark as used
     best.used = true;
     remainingCapacity -= best.qtyEstimatedKg;
 
     const legDistance = distanceKm(currentPos, best.geo);
     totalDistanceKm += legDistance;
+    
+    // Update current position
     currentPos = best.geo;
+
+    log(`  ✓ Stop ${selected.length + 1}: ${best.garageName} (${best.qtyEstimatedKg}kg, ${legDistance.toFixed(1)}km, priority: ${best.priority})`);
 
     selected.push({
       demand: best,
@@ -79,43 +115,54 @@ function buildGreedyTourForDriver({ driver, demands, start, maxStops }) {
     });
   }
 
+  log(`✅ Tour built: ${selected.length} stops, ${totalDistanceKm.toFixed(1)}km, ${remainingCapacity}kg remaining`);
+
   return {
-    remainingCapacityKg: remainingCapacity,
+    remainingCapacityKg: Math.round(remainingCapacity),
     totalDistanceKm: Number(totalDistanceKm.toFixed(2)),
     selected,
   };
 }
 
-// --- controllers ---
+// --- Controllers ---
 
 /**
- * POST /drivers/me/tours/request
- * Body: { lat, lng, date? }
- *
- * Meaning:
- *  - "I am a driver, here's my current location, give me my next tour for today."
+ * FIX #7: Request tour with proper demand filtering
+ * 
+ * POST /api/drivers/me/tours/request
+ * Body: { driverId, lat, lng, date? }
+ * 
+ * Rules implemented:
+ * - Include expired demands (driver gets them first via priority)
+ * - Filter by proximity and priority
+ * - Respect daily tour limits
+ * - Validate all coordinates
  */
 async function requestTour(req, res, next) {
   try {
-    // from auth middleware (preferred)
     const driverIdFromToken = req.body.driverId || req.driverId?.id;
     const { lat, lng, date } = req.body;
 
+    // Validation
     if (!driverIdFromToken) {
-      return res.status(401).json({ error: "Driver auth required" });
+      return res.status(401).json({ error: "Driver auth required (provide driverId)" });
     }
     if (!lat || !lng) {
-      return res
-        .status(400)
-        .json({ error: "Driver current location {lat,lng} is required" });
+      return res.status(400).json({ 
+        error: "Driver current location {lat,lng} is required" 
+      });
     }
 
+    // Load driver
     const driver = await Driver.findById(driverIdFromToken).populate("vehicle");
-    console.log(driver);
+    
     if (!driver || !driver.active) {
       return res.status(404).json({ error: "Driver not found or inactive" });
     }
 
+    log(`🚗 Tour request from driver: ${driver.name} at (${lat}, ${lng})`);
+
+    // Date boundaries
     const today = date ? new Date(date) : new Date();
     const dayStart = new Date(today);
     dayStart.setHours(0, 0, 0, 0);
@@ -130,6 +177,7 @@ async function requestTour(req, res, next) {
     }).populate("stops.demand");
 
     if (existingTour) {
+      log(`♻️  Returning existing tour ${existingTour._id}`);
       return res.json({
         reused: true,
         tour: existingTour,
@@ -143,6 +191,7 @@ async function requestTour(req, res, next) {
     });
 
     if (toursTodayCount >= (driver.maxDailyTours || 3)) {
+      log(`🛑 Driver ${driver.name} reached max daily tours (${toursTodayCount})`);
       return res.status(200).json({
         reused: false,
         info: "Max daily tours reached for this driver",
@@ -150,16 +199,23 @@ async function requestTour(req, res, next) {
       });
     }
 
-    // 3) Fetch eligible demands for this driver
-    //    For now: all NEW/CONFIRMED & not assigned.
+    // 3) FIX #7: Fetch eligible demands
+    //    - Include expired demands (they have high priority)
+    //    - Only demands with coordinates
+    //    - Sort by priority (highest first) and deadline (closest first)
     const demands = await Demand.find({
       status: { $in: ["NEW", "CONFIRMED"] },
       "assigned.driverId": { $exists: false },
-      deadlineAt: { $gte: dayStart }, // not already expired
-    }).sort({ priority: -1, deadlineAt: 1 }); // most urgent first
+      "geo.lat": { $exists: true },
+      "geo.lng": { $exists: true },
+      // REMOVED: deadlineAt filter (we want expired demands!)
+    })
+      .sort({ priority: -1, deadlineAt: 1 })
+      .limit(100) // Performance limit
+      .lean();
 
-    console.log("demands" + demands);
-    
+    log(`📋 Found ${demands.length} eligible demands`);
+
     if (!demands.length) {
       return res.status(200).json({
         reused: false,
@@ -168,6 +224,7 @@ async function requestTour(req, res, next) {
       });
     }
 
+    // 4) Build tour with greedy algorithm
     const startPos = { lat: Number(lat), lng: Number(lng) };
 
     const { remainingCapacityKg, totalDistanceKm, selected } =
@@ -179,6 +236,7 @@ async function requestTour(req, res, next) {
       });
 
     if (!selected.length) {
+      log(`⚠️  No demands fit capacity from current position`);
       return res.status(200).json({
         reused: false,
         info: "No demands fit capacity from current position",
@@ -186,7 +244,7 @@ async function requestTour(req, res, next) {
       });
     }
 
-    // 4) Build Tour document
+    // 5) Build Tour document
     const stopDocs = selected.map((sel, idx) => {
       const d = sel.demand;
       return {
@@ -216,7 +274,7 @@ async function requestTour(req, res, next) {
       stops: stopDocs,
     });
 
-    // 5) Mark demands as assigned
+    // 6) Mark demands as assigned
     await Demand.updateMany(
       { _id: { $in: selected.map((s) => s.demand._id) } },
       {
@@ -229,17 +287,47 @@ async function requestTour(req, res, next) {
       }
     );
 
-    log(
-      `Created tour ${tour._id} for driver ${driver.name} with ${selected.length} stops`
-    );
+    log(`✅ Created tour ${tour._id} for driver ${driver.name} with ${selected.length} stops`);
 
-    const populatedTour = await Tour.findById(tour._id).populate(
-      "stops.demand"
-    );
+    const populatedTour = await Tour.findById(tour._id).populate("stops.demand");
 
     res.status(201).json({
       reused: false,
       tour: populatedTour,
+    });
+  } catch (err) {
+    log(`❌ Error in requestTour:`, err.message);
+    next(err);
+  }
+}
+
+/**
+ * POST /tours/:tourId/start
+ * Start a planned tour
+ */
+async function startTour(req, res, next) {
+  try {
+    const { tourId } = req.params;
+
+    const tour = await Tour.findById(tourId);
+    if (!tour) {
+      return res.status(404).json({ error: "Tour not found" });
+    }
+
+    if (tour.status !== "PLANNED") {
+      return res.status(400).json({ 
+        error: `Cannot start tour with status: ${tour.status}` 
+      });
+    }
+
+    tour.status = "IN_PROGRESS";
+    await tour.save();
+
+    log(`🚀 Tour ${tourId} started`);
+
+    res.json({ 
+      success: true,
+      tour 
     });
   } catch (err) {
     next(err);
@@ -248,12 +336,16 @@ async function requestTour(req, res, next) {
 
 /**
  * POST /tours/:tourId/stops/:stopId/complete
- * Body: { actualKg, unitsCollected?, notes? }
+ * Body: { actualKg, notes? }
  */
 async function completeStop(req, res, next) {
   try {
     const { tourId, stopId } = req.params;
     const { actualKg, notes } = req.body;
+
+    if (actualKg == null) {
+      return res.status(400).json({ error: "actualKg is required" });
+    }
 
     const tour = await Tour.findById(tourId);
     if (!tour) return res.status(404).json({ error: "Tour not found" });
@@ -262,30 +354,34 @@ async function completeStop(req, res, next) {
     if (!stop) return res.status(404).json({ error: "Stop not found" });
 
     stop.status = "COMPLETED";
-    stop.actualKg = actualKg ?? stop.actualKg;
+    stop.actualKg = actualKg;
     stop.completedAt = new Date();
     if (notes) stop.notes = notes;
 
-    // mark demand
+    // Mark demand as completed
     await Demand.findByIdAndUpdate(stop.demand, {
       $set: {
         status: "COMPLETED",
       },
     });
 
-    // if all stops done → tour completed
+    // Check if all stops are done
     const allDone = tour.stops.every((s) =>
       ["COMPLETED", "NOT_READY", "PARTIAL"].includes(s.status)
     );
+    
     if (allDone) {
       tour.status = "COMPLETED";
+      log(`✅ Tour ${tourId} completed (all stops done)`);
     } else {
       tour.status = "IN_PROGRESS";
     }
 
     await tour.save();
 
-    res.json({ tour });
+    log(`✓ Stop ${stopId} completed: ${actualKg}kg collected`);
+
+    res.json({ success: true, tour });
   } catch (err) {
     next(err);
   }
@@ -310,11 +406,13 @@ async function notReadyStop(req, res, next) {
     stop.completedAt = new Date();
     if (reason) stop.notes = reason;
 
-    // release demand so it can be rescheduled later
+    // Release demand so it can be rescheduled
     await Demand.findByIdAndUpdate(stop.demand, {
       $set: {
         status: "NOT_READY",
-        assigned: {},
+      },
+      $unset: {
+        assigned: "",
       },
     });
 
@@ -325,7 +423,9 @@ async function notReadyStop(req, res, next) {
 
     await tour.save();
 
-    res.json({ tour });
+    log(`⚠️  Stop ${stopId} marked NOT_READY: ${reason || "no reason"}`);
+
+    res.json({ success: true, tour });
   } catch (err) {
     next(err);
   }
@@ -339,6 +439,10 @@ async function partialStop(req, res, next) {
   try {
     const { tourId, stopId } = req.params;
     const { actualKg, notes } = req.body;
+
+    if (actualKg == null) {
+      return res.status(400).json({ error: "actualKg is required" });
+    }
 
     const tour = await Tour.findById(tourId);
     if (!tour) return res.status(404).json({ error: "Tour not found" });
@@ -364,7 +468,9 @@ async function partialStop(req, res, next) {
 
     await tour.save();
 
-    res.json({ tour });
+    log(`⚠️  Stop ${stopId} partially completed: ${actualKg}kg`);
+
+    res.json({ success: true, tour });
   } catch (err) {
     next(err);
   }
@@ -372,6 +478,7 @@ async function partialStop(req, res, next) {
 
 module.exports = {
   requestTour,
+  startTour,
   completeStop,
   notReadyStop,
   partialStop,

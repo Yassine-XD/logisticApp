@@ -3,26 +3,61 @@ const { fetchAlbRecsRaw } = require("../integrations/signus.client");
 const { upsertDemandsFromAlbRecs } = require("../services/demands.service");
 const { log } = require("../utils/logger");
 
+/**
+ * FIX #8: Improved error handling and logging
+ */
 async function runDemandsSync() {
   try {
-    log("Starting Signus demands sync...");
-
-    const now = new Date();
-    const from = new Date(now);
-    from.setDate(now.getDate() - 10); // last 10 days; tweak as you like
+    log("📡 Starting Signus demands sync...");
 
     const albRecs = await fetchAlbRecsRaw();
 
+    // FIX #8: Validate response
+    if (!albRecs || !albRecs.data) {
+      log("⚠️  Signus sync: No data returned from API");
+      return { success: false, reason: "No data from API" };
+    }
+
+    if (!Array.isArray(albRecs.data)) {
+      log("⚠️  Signus sync: API returned non-array data");
+      return { success: false, reason: "Invalid data format" };
+    }
+
     const result = await upsertDemandsFromAlbRecs(albRecs.data);
-    log("Signus demands sync finished:", result);
+    
+    log("✅ Signus demands sync finished:", {
+      created: result.created,
+      updated: result.updated,
+      errors: result.errors,
+      total: result.total,
+    });
+
+    return { success: true, result };
   } catch (err) {
-    log("Signus demands sync failed:", err.message);
+    log("❌ Signus demands sync failed:", err.message);
+    log("Stack trace:", err.stack);
+    
+    // In production, you might want to alert here
+    // e.g., send to Sentry, PagerDuty, etc.
+    
+    return { success: false, error: err.message };
   }
 }
 
+/**
+ * Start the sync loop
+ * FIX #9: Configurable interval from environment
+ */
 function startDemandsSyncLoop() {
+  // Run immediately on startup
   runDemandsSync();
-  setInterval(runDemandsSync, 1000 * 60 * 60); // every hour
+
+  // Then run every hour (or from env config)
+  const intervalMs = parseInt(process.env.SYNC_INTERVAL_MS) || 1000 * 60 * 60; // 1 hour default
+  
+  log(`⏰ Sync job scheduled every ${intervalMs / 1000 / 60} minutes`);
+  
+  setInterval(runDemandsSync, intervalMs);
 }
 
 module.exports = {
