@@ -35,7 +35,7 @@ async function getVehicle(req, res, next) {
 // POST /vehicles
 async function createVehicle(req, res, next) {
   try {
-    const { plate, alias, capacityKg, volumeM3, type, active } = req.body;
+    const { plate, alias, capacityKg, tiresQty,volumeM3, type, active } = req.body;
 
     const vehicle = await Vehicle.create({
       plate,

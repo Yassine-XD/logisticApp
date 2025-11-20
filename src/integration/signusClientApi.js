@@ -1,6 +1,5 @@
 // src/integrations/signus.client.js
 const axios = require("axios");
-const config = require("../config");
 const { log } = require("../utils/logger");
 
 const signus = axios.create({

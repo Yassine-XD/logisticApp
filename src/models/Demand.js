@@ -5,39 +5,32 @@ const { Schema } = mongoose;
 const DemandSchema = new Schema(
   {
     signusId: { type: Number, unique: true, index: true }, // codigo
-    sourceRef: String, // e.g. albRec codigo
 
     estadoCod: { type: String, index: true },
     estado: String,
 
-    garageId: { type: String, index: true }, // Signus PGNU code
-    garageName: String,
+    // PGNU code from Signus
+    codigoPgnu: { type: String, index: true },
+    nombrePgnu: String,
+    telefonoPgnu: String,
 
-    geo: {
-      lat: Number,
-      lng: Number,
-    },
-    address: {
-      street: String,
-      postalCode: String,
-      city: String,
-      municipality: String,
-      province: String,
-      region: String,
-      country: String,
-    },
-    contact: {
-      phone: String,
-    },
+    latitud: Number,
+    longitud: Number,
+    direccion: String,
+    codigoPostal: String,
+    municipio: String,
+    provincia: String,
+    comunidad: String,
+    pais: String,
 
-    qtyEstimatedKg: Number,
-    unitsEstimated: Number,
+    kgSolicitadosEstimados: Number,
+    unidadesSolicitadas: Number,
 
-    requestedAt: { type: Date, index: true },
-    deadlineAt: { type: Date, index: true },
+    fechaPeticion: { type: Date, index: true },
+    fechaMaxima: { type: Date, index: true },
+    fechaRealRecogida: Date,
 
-    notes: String, // observacionesPeticion (raw)
-
+    observacionesPeticion: String,
     // NEW:
     status: {
       type: String,
@@ -62,9 +55,12 @@ const DemandSchema = new Schema(
       driverId: { type: Schema.Types.ObjectId, ref: "Driver" },
       tourId: { type: Schema.Types.ObjectId, ref: "Tour" },
       date: Date,
+      seq: Number,
     },
   },
   { timestamps: true }
 );
+
+DemandSchema.index({ geo: "2dsphere" });
 
 module.exports = mongoose.model("Demand", DemandSchema);

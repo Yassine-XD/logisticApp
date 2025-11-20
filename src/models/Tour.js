@@ -56,8 +56,8 @@ const TourSchema = new Schema(
 
     status: {
       type: String,
-      enum: ["PLANNED", "IN_PROGRESS", "COMPLETED", "CANCELED"],
-      default: "PLANNED",
+      enum: ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELED"],
+      default: "SCHEDULED",
       index: true,
     },
 

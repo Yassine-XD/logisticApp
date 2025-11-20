@@ -1,6 +1,8 @@
 // src/controllers/demands.controller.js
 const { listDemands } = require("../services/demands.service");
-
+const {
+  refreshReadyDemandsFromDemands,
+} = require("../services/ready.demands.service");
 
 /**
  * GET /demands
@@ -15,19 +17,14 @@ const { listDemands } = require("../services/demands.service");
  */
 async function getDemands(req, res, next) {
   try {
-    const {
-      estadoCod,
-      from,
-      to,
-      page,
-      limit,
-      sortBy,
-      sortDir,
-    } = req.query;
+    const { estadoCod, from, to, page, limit, sortBy, sortDir } = req.query;
 
     let estados = undefined;
     if (estadoCod) {
-      estados = estadoCod.split(",").map((s) => s.trim()).filter(Boolean);
+      estados = estadoCod
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
 
     const result = await listDemands({
@@ -46,6 +43,20 @@ async function getDemands(req, res, next) {
   }
 }
 
+async function refreshPreDemands(req, res, next) {
+  try {
+    const candidtas = await refreshReadyDemandsFromDemands();
+    res.json(candidtas);
+  } catch (error) {
+    res.json({
+      status: "Failed",
+      message: error.message,
+    });
+    next();
+  }
+}
+
 module.exports = {
+  refreshPreDemands,
   getDemands,
 };

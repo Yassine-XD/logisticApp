@@ -2,6 +2,7 @@
 const Demand = require("../models/Demand");
 const { fetchAlbRecsRaw } = require("../integrations/signus.client");
 const { log } = require("../utils/logger");
+const SignusAlbRec = require("../models/signusAlbRec");
 
 // estados we care about for planning (default)
 const PLANNING_STATUSES = ["EN_CURSO", "ASIGNADA", "EN_TRANSITO"];
@@ -61,6 +62,7 @@ async function upsertDemandsFromAlbRecs(albRecs) {
 
   for (const item of albRecs) {
     const normalized = normalizeAlbRec(item);
+    // console.log(normalizeAlbRec())
 
     const doc = await Demand.findOneAndUpdate(
       { signusId: normalized.signusId },
@@ -71,7 +73,6 @@ async function upsertDemandsFromAlbRecs(albRecs) {
         setDefaultsOnInsert: true,
       }
     );
-
     if (
       doc.createdAt &&
       doc.updatedAt &&
@@ -85,6 +86,7 @@ async function upsertDemandsFromAlbRecs(albRecs) {
 
   const result = { created, updated, total: albRecs.length };
   log("Demands upsert result:", result);
+  console.log(result);
   return result;
 }
 
