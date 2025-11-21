@@ -14,11 +14,17 @@ const StopSchema = new Schema(
       default: "SCHEDULED",
     },
 
+    // Planned vs Actual
     plannedKg: Number,
     actualKg: Number,
 
-    garageName: String, // denormalized for quick read
-    garageId: String,   // signus garage code
+    // NEW: Tire count tracking
+    smallTires: { type: Number, default: 0 },      // 8.58 kg each
+    mediumTires: { type: Number, default: 0 },     // 59 kg each
+
+    // Garage info (denormalized for quick read)
+    garageName: String,
+    garageId: String,
     geo: {
       lat: Number,
       lng: Number,
@@ -56,18 +62,44 @@ const TourSchema = new Schema(
 
     status: {
       type: String,
-      enum: ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELED"],
-      default: "SCHEDULED",
+      enum: ["PLANNED", "IN_PROGRESS", "COMPLETED", "CANCELED"],
+      default: "PLANNED",
       index: true,
     },
 
-    capacityKg: Number,
+    // Vehicle capacity at tour creation
+    capacityKg: { type: Number, required: true },
+    
+    // Tour metrics
     totalDistanceKm: Number,
     remainingCapacityKg: Number,
+
+    // Collection summary (calculated from stops)
+    totalPlannedKg: { type: Number, default: 0 },
+    totalActualKg: { type: Number, default: 0 },
+    totalSmallTires: { type: Number, default: 0 },
+    totalMediumTires: { type: Number, default: 0 },
 
     stops: [StopSchema],
   },
   { timestamps: true }
 );
+
+// Method to calculate tour totals
+TourSchema.methods.calculateTotals = function() {
+  this.totalPlannedKg = this.stops.reduce((sum, stop) => sum + (stop.plannedKg || 0), 0);
+  this.totalActualKg = this.stops.reduce((sum, stop) => sum + (stop.actualKg || 0), 0);
+  this.totalSmallTires = this.stops.reduce((sum, stop) => sum + (stop.smallTires || 0), 0);
+  this.totalMediumTires = this.stops.reduce((sum, stop) => sum + (stop.mediumTires || 0), 0);
+  
+  // Recalculate remaining capacity based on actual collections
+  this.remainingCapacityKg = this.capacityKg - this.totalActualKg;
+};
+
+// Auto-calculate totals before saving
+TourSchema.pre('save', function(next) {
+  this.calculateTotals();
+  next();
+});
 
 module.exports = mongoose.model("Tour", TourSchema);

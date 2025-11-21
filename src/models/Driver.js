@@ -4,36 +4,35 @@ const { Schema } = mongoose;
 
 const DriverSchema = new Schema(
   {
-    // internal ID, not Signus
+    // Basic info
     name: { type: String, required: true },
     phone: { type: String },
 
-    // optional link to Signus driver code (codigoConductor)
-    signusCode: { type: String, index: true }, // e.g. "DBHW"
+    // Optional link to Signus driver code
+    signusCode: { type: String, index: true },
     nif: { type: String },
 
-    // the vehicle (truck/van) this driver usually uses
+    // Vehicle assignment
     vehicle: { type: Schema.Types.ObjectId, ref: "Vehicle" },
 
     active: { type: Boolean, default: true },
 
-    // for future: where they usually start / end
+    // Home base for route planning
     homeBase: {
       lat: Number,
       lng: Number,
       address: String,
     },
 
-    // simple performance placeholders (we'll compute later)
+    // Performance metrics
     stats: {
       totalKgCollected: { type: Number, default: 0 },
       totalStops: { type: Number, default: 0 },
       reliabilityScore: { type: Number, default: 0 }, // 0–100
     },
 
-    // NEW:
+    // Daily tour limit (stops are now dynamic based on capacity)
     maxDailyTours: { type: Number, default: 3 },
-    maxStopsPerTour: { type: Number, default: 8 },
   },
   { timestamps: true }
 );

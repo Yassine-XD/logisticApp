@@ -5,20 +5,28 @@ const {
   completeStop,
   notReadyStop,
   partialStop,
+  getTour,
+  getDriverTours,
 } = require("../controllers/tours.controller");
 
 const router = express.Router();
 
+// Get tour details
+router.get("/tours/:tourId", getTour);
+
+// Get all tours for a driver
+router.get("/drivers/:driverId/tours", getDriverTours);
+
 // Start a tour
 router.post("/tours/:tourId/start", startTour);
 
-// Complete a stop
+// Complete a stop (with tire counts)
 router.post("/tours/:tourId/stops/:stopId/complete", completeStop);
 
 // Mark stop as not ready
 router.post("/tours/:tourId/stops/:stopId/not-ready", notReadyStop);
 
-// Mark stop as partial
+// Mark stop as partial collection
 router.post("/tours/:tourId/stops/:stopId/partial", partialStop);
 
 module.exports = router;
