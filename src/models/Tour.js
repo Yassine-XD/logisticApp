@@ -5,6 +5,10 @@ const { Schema } = mongoose;
 const StopSchema = new Schema(
   {
     demand: { type: Schema.Types.ObjectId, ref: "Demand", required: true },
+    
+    // SIGNUS traceability fields
+    signusId: { type: Number, index: true },           // SIGNUS demand code (e.g., 2223039)
+    signusAlbRec: { type: String, index: true },       // SIGNUS albarán code (e.g., "ALB2223039")
 
     order: { type: Number, required: true },
 

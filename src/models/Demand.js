@@ -6,6 +6,7 @@ const DemandSchema = new Schema(
   {
     // SIGNUS identifiers
     signusId: { type: Number, unique: true, index: true, required: true }, // codigo from SIGNUS
+    signusAlbRec: { type: String, index: true }, // Full albarán code from SIGNUS
 
     // Status from SIGNUS (estadoCod, estado)
     estadoCod: { type: String, index: true }, // "EN_CURSO", "ASIGNADA", "EN_TRANSITO"

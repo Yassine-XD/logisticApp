@@ -14,10 +14,10 @@ function parseDate(str) {
 
 /**
  * FIX: Correct field mapping based on actual SIGNUS API response
- * 
+ *
  * SIGNUS Fields → Our DB Fields:
  * - codigoPgnu → garageId
- * - nombrePgnu → garageName  
+ * - nombrePgnu → garageName
  * - kgSolicitadosEstimados → qtyEstimatedKg
  * - unidadesSolicitadas → unitsEstimated
  * - municipio → address.city (NO localidad field exists)
@@ -26,7 +26,8 @@ function parseDate(str) {
  */
 function normalizeAlbRec(item) {
   // Calculate units from lineasRecogidaManual if available
-  const unidadesSolicitadas = item.unidadesSolicitadas || 
+  const unidadesSolicitadas =
+    item.unidadesSolicitadas ||
     (item.lineasRecogidaManual || []).reduce(
       (sum, line) => sum + (line.unidadesSolicitadas || 0),
       0
@@ -56,7 +57,8 @@ function normalizeAlbRec(item) {
   const weightScore = Math.min(kg / 3000, 1);
 
   // Final priority 0–100
-  const priority = (0.4 * ageScore + 0.4 * deadlineScore + 0.2 * weightScore) * 100;
+  const priority =
+    (0.4 * ageScore + 0.4 * deadlineScore + 0.2 * weightScore) * 100;
 
   return {
     // Identifiers
@@ -97,7 +99,7 @@ function normalizeAlbRec(item) {
     // Dates
     requestedAt,
     deadlineAt,
-    
+
     // Add actual collection date if exists
     actualCollectionAt: parseDate(item.fechaRealRecogida),
 
@@ -184,18 +186,6 @@ async function upsertDemandsFromAlbRecs(albRecs) {
   return result;
 }
 
-function dateMinus3Months() {
-  const today = new Date();
-  const target = new Date(today);
-  target.setMonth(target.getMonth() - 3);
-
-  const year = target.getFullYear();
-  const month = String(target.getMonth() + 1).padStart(2, "0");
-  const day = String(target.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
 /**
  * List demands from MongoDB with filters
  */
@@ -236,11 +226,7 @@ async function listDemands(opts = {}) {
 
   // Use the filter we built
   const [items, total] = await Promise.all([
-    Demand.find(filter)
-      .sort(sort)
-      .skip(skip)
-      .limit(Number(limit))
-      .lean(),
+    Demand.find(filter).sort(sort).skip(skip).limit(Number(limit)).lean(),
     Demand.countDocuments(filter),
   ]);
 
@@ -259,7 +245,7 @@ async function listDemands(opts = {}) {
 async function getPlanningDemands({ date } = {}) {
   try {
     const raw = await fetchAlbRecsRaw();
-    
+
     if (!raw || !raw.data) {
       log("⚠️  No data returned from Signus API");
       return [];
@@ -275,18 +261,21 @@ async function getPlanningDemands({ date } = {}) {
       .filter((row) => {
         // Must have planning status
         if (!planningEstados.has(row.estadoCod)) return false;
-        
+
         // Must have coordinates
         if (!row.latitud || !row.longitud) return false;
-        
+
         // Must have weight
-        if (!row.kgSolicitadosEstimados || row.kgSolicitadosEstimados <= 0) return false;
-        
+        if (!row.kgSolicitadosEstimados || row.kgSolicitadosEstimados <= 0)
+          return false;
+
         return true;
       })
       .map((row) => {
         const kg = row.kgSolicitadosEstimados || 0;
-        const requestedAt = row.fechaPeticion ? new Date(row.fechaPeticion) : null;
+        const requestedAt = row.fechaPeticion
+          ? new Date(row.fechaPeticion)
+          : null;
         const deadlineAt = row.fechaMaxima ? new Date(row.fechaMaxima) : null;
 
         // Calculate age and deadline metrics for display
@@ -306,40 +295,17 @@ async function getPlanningDemands({ date } = {}) {
         const ageScore = Math.min(ageDays / 30, 1);
         const deadlineScore = 1 - Math.min(daysToDeadline / 30, 1);
         const weightScore = Math.min(kg / 3000, 1);
-        const priority = (0.4 * ageScore + 0.4 * deadlineScore + 0.2 * weightScore) * 100;
+        const priority =
+          (0.4 * ageScore + 0.4 * deadlineScore + 0.2 * weightScore) * 100;
 
-        return {
-          id: `albRec_${row.codigo}`,
-          signusCodigo: row.codigo,
-          garageId: row.codigoPgnu,
-          garageName: row.nombrePgnu,
-          kg,
-          lat: row.latitud,
-          lng: row.longitud,
-          requestedAt,
-          deadlineAt,
-          ageDays: Number(ageDays.toFixed(1)),
-          daysToDeadline: Number(daysToDeadline.toFixed(1)),
-          priority: Math.round(priority),
-
-          contactPhone: row.telefonoPgnu || null,
-          address: {
-            street: row.direccion || null,
-            postalCode: row.codigoPostal || null,
-            city: row.municipio || null, // ← FIX: No localidad
-            municipality: row.municipio || null,
-            province: row.provincia || null,
-            region: row.comunidad || null,
-            country: row.pais || null,
-          },
-        };
+        return normalizeAlbRec(row);
       });
 
     // Sort by priority (highest first)
-    demands.sort((a, b) => b.priority - a.priority);
+    const created = await Demand.insertMany(demands);
 
     log(`✅ Planning demands prepared: ${demands.length} items`);
-    return demands;
+    return created;
   } catch (err) {
     log(`❌ Error in getPlanningDemands:`, err.message);
     return [];

@@ -28,7 +28,8 @@ function distanceKm(a, b) {
   const sinDLat = Math.sin(dLat / 2);
   const sinDLng = Math.sin(dLng / 2);
 
-  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+  const h =
+    sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
   const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 
   return R * c;
@@ -36,7 +37,7 @@ function distanceKm(a, b) {
 
 /**
  * Greedy algorithm to build tour that fills truck capacity
- * 
+ *
  * Rules:
  * 1. Prioritize by: distance / (1 + priority/50)
  * 2. Keep adding stops until truck is full
@@ -107,10 +108,18 @@ function buildGreedyTour({ driver, demands, start, capacityKg }) {
       distanceFromPrevKm: Number(legDistance.toFixed(2)),
     });
 
-    log(`   ✓ Stop ${selected.length}: ${best.garageName} (${best.qtyEstimatedKg}kg, ${legDistance.toFixed(1)}km, priority: ${best.priority})`);
+    log(
+      `   ✓ Stop ${selected.length}: ${best.garageName} (${
+        best.qtyEstimatedKg
+      }kg, ${legDistance.toFixed(1)}km, priority: ${best.priority})`
+    );
   }
 
-  log(`✅ Tour built: ${selected.length} stops, ${totalDistanceKm.toFixed(1)}km, ${remainingCapacity}kg remaining`);
+  log(
+    `✅ Tour built: ${selected.length} stops, ${totalDistanceKm.toFixed(
+      1
+    )}km, ${remainingCapacity}kg remaining`
+  );
 
   return {
     remainingCapacityKg: Math.round(remainingCapacity),
@@ -123,7 +132,7 @@ function buildGreedyTour({ driver, demands, start, capacityKg }) {
 
 /**
  * POST /api/drivers/me/tours/request
- * 
+ *
  * Driver requests a new tour for today
  * Algorithm fills truck capacity optimally
  */
@@ -134,45 +143,47 @@ async function requestTour(req, res, next) {
 
     // Validation
     if (!driverIdFromToken) {
-      return res.status(401).json({ 
-        error: "Driver authentication required. Please provide driverId." 
+      return res.status(401).json({
+        error: "Driver authentication required. Please provide driverId.",
       });
     }
 
     if (!lat || !lng) {
-      return res.status(400).json({ 
-        error: "Current location required. Please provide lat and lng." 
+      return res.status(400).json({
+        error: "Current location required. Please provide lat and lng.",
       });
     }
 
     // Load driver with vehicle
     const driver = await Driver.findById(driverIdFromToken).populate("vehicle");
-    
+
     if (!driver || !driver.active) {
-      return res.status(404).json({ 
-        error: "Driver not found or inactive" 
+      return res.status(404).json({
+        error: "Driver not found or inactive",
       });
     }
 
     // CRITICAL: Require vehicle assignment
     if (!driver.vehicle) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "No vehicle assigned to driver",
         message: "Please assign a vehicle before requesting tours",
         driverId: driver._id,
-        driverName: driver.name
+        driverName: driver.name,
       });
     }
 
     if (!driver.vehicle.active) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Assigned vehicle is not active",
         vehicleId: driver.vehicle._id,
-        vehiclePlate: driver.vehicle.plate
+        vehiclePlate: driver.vehicle.plate,
       });
     }
 
-    log(`🚗 Tour request from driver: ${driver.name} (${driver.vehicle.plate})`);
+    log(
+      `🚗 Tour request from driver: ${driver.name} (${driver.vehicle.plate})`
+    );
 
     // Date boundaries
     const today = date ? new Date(date) : new Date();
@@ -205,18 +216,21 @@ async function requestTour(req, res, next) {
     const maxDailyTours = driver.maxDailyTours || 3;
 
     if (toursTodayCount >= maxDailyTours) {
-      log(`🛑 Driver ${driver.name} reached max daily tours (${toursTodayCount}/${maxDailyTours})`);
+      log(
+        `🛑 Driver ${driver.name} reached max daily tours (${toursTodayCount}/${maxDailyTours})`
+      );
       return res.status(200).json({
         reused: false,
         info: `Maximum daily tours reached (${toursTodayCount}/${maxDailyTours})`,
         tour: null,
         toursToday: toursTodayCount,
-        maxDailyTours: maxDailyTours
+        maxDailyTours: maxDailyTours,
       });
     }
 
     // Fetch eligible demands from DB
     const demands = await Demand.find({
+      estadoCod: { $in: ["EN_CURSO", "ASIGNADA", "EN_TRANSITO"] },
       status: { $in: ["NEW", "CONFIRMED"] },
       "assigned.driverId": { $exists: false },
       "geo.lat": { $exists: true },
@@ -228,7 +242,6 @@ async function requestTour(req, res, next) {
       .lean();
 
     log(`📋 Found ${demands.length} eligible demands`);
-
     if (!demands.length) {
       return res.status(200).json({
         reused: false,
@@ -261,8 +274,12 @@ async function requestTour(req, res, next) {
     // Create tour document
     const stopDocs = selected.map((sel, idx) => {
       const d = sel.demand;
+      console.log("raw",d)
+      console.log("finished raw")
       return {
         demand: d._id,
+        signusId: d.signusId, // SIGNUS demand code
+        signusAlbRec: d.signusAlbRec, // SIGNUS albarán code
         order: idx + 1,
         status: "SCHEDULED",
         plannedKg: d.qtyEstimatedKg,
@@ -304,7 +321,9 @@ async function requestTour(req, res, next) {
     log(`✅ Created tour ${tour._id} with ${selected.length} stops`);
 
     // Populate and return
-    const populatedTour = await Tour.findById(tour._id).populate("stops.demand");
+    const populatedTour = await Tour.findById(tour._id).populate(
+      "stops.demand"
+    );
 
     res.status(201).json({
       reused: false,
@@ -314,8 +333,10 @@ async function requestTour(req, res, next) {
         totalDistanceKm,
         plannedKg: stopDocs.reduce((sum, s) => sum + s.plannedKg, 0),
         remainingCapacityKg,
-        capacityUsedPercent: Math.round(((capacityKg - remainingCapacityKg) / capacityKg) * 100)
-      }
+        capacityUsedPercent: Math.round(
+          ((capacityKg - remainingCapacityKg) / capacityKg) * 100
+        ),
+      },
     });
   } catch (err) {
     log(`❌ Error in requestTour:`, err.message);
@@ -325,7 +346,7 @@ async function requestTour(req, res, next) {
 
 /**
  * POST /api/tours/:tourId/start
- * 
+ *
  * Driver starts the tour
  */
 async function startTour(req, res, next) {
@@ -338,9 +359,9 @@ async function startTour(req, res, next) {
     }
 
     if (tour.status !== "PLANNED") {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: `Cannot start tour with status: ${tour.status}`,
-        currentStatus: tour.status
+        currentStatus: tour.status,
       });
     }
 
@@ -349,10 +370,10 @@ async function startTour(req, res, next) {
 
     log(`🚀 Tour ${tourId} started`);
 
-    res.json({ 
+    res.json({
       success: true,
       tour,
-      message: "Tour started successfully"
+      message: "Tour started successfully",
     });
   } catch (err) {
     next(err);
@@ -361,7 +382,7 @@ async function startTour(req, res, next) {
 
 /**
  * POST /api/tours/:tourId/stops/:stopId/complete
- * 
+ *
  * Driver completes a stop by entering tire counts
  * Backend auto-calculates kg based on tire types
  */
@@ -372,18 +393,18 @@ async function completeStop(req, res, next) {
 
     // Validation
     if (smallTires == null || mediumTires == null) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Both smallTires and mediumTires counts are required",
         example: {
           smallTires: 50,
-          mediumTires: 20
-        }
+          mediumTires: 20,
+        },
       });
     }
 
     if (smallTires < 0 || mediumTires < 0) {
-      return res.status(400).json({ 
-        error: "Tire counts cannot be negative" 
+      return res.status(400).json({
+        error: "Tire counts cannot be negative",
       });
     }
 
@@ -399,7 +420,7 @@ async function completeStop(req, res, next) {
 
     // Calculate actual kg based on tire counts
     const actualKg = Math.round(
-      (smallTires * SMALL_TIRE_KG) + (mediumTires * MEDIUM_TIRE_KG)
+      smallTires * SMALL_TIRE_KG + mediumTires * MEDIUM_TIRE_KG
     );
 
     // Update stop
@@ -419,24 +440,26 @@ async function completeStop(req, res, next) {
     const allDone = tour.stops.every((s) =>
       ["COMPLETED", "NOT_READY", "PARTIAL"].includes(s.status)
     );
-    
+
     tour.status = allDone ? "COMPLETED" : "IN_PROGRESS";
 
     // Save and recalculate totals
     await tour.save();
 
-    log(`✓ Stop ${stopId} completed: ${smallTires} small + ${mediumTires} medium = ${actualKg}kg`);
+    log(
+      `✓ Stop ${stopId} completed: ${smallTires} small + ${mediumTires} medium = ${actualKg}kg`
+    );
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       tour,
       stopSummary: {
         plannedKg: stop.plannedKg,
         actualKg,
         smallTires,
         mediumTires,
-        difference: actualKg - stop.plannedKg
-      }
+        difference: actualKg - stop.plannedKg,
+      },
     });
   } catch (err) {
     next(err);
@@ -445,7 +468,7 @@ async function completeStop(req, res, next) {
 
 /**
  * POST /api/tours/:tourId/stops/:stopId/not-ready
- * 
+ *
  * Driver marks stop as not ready (garage closed, etc.)
  * Demand is released and can be reassigned
  */
@@ -483,10 +506,10 @@ async function notReadyStop(req, res, next) {
 
     log(`⚠️  Stop ${stopId} marked NOT_READY: ${reason || "no reason given"}`);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       tour,
-      message: "Stop marked as not ready. Demand has been released."
+      message: "Stop marked as not ready. Demand has been released.",
     });
   } catch (err) {
     next(err);
@@ -495,7 +518,7 @@ async function notReadyStop(req, res, next) {
 
 /**
  * POST /api/tours/:tourId/stops/:stopId/partial
- * 
+ *
  * Driver collects partial amount (garage had less than expected)
  */
 async function partialStop(req, res, next) {
@@ -505,14 +528,14 @@ async function partialStop(req, res, next) {
 
     // Validation
     if (smallTires == null || mediumTires == null) {
-      return res.status(400).json({ 
-        error: "Both smallTires and mediumTires counts are required" 
+      return res.status(400).json({
+        error: "Both smallTires and mediumTires counts are required",
       });
     }
 
     if (smallTires < 0 || mediumTires < 0) {
-      return res.status(400).json({ 
-        error: "Tire counts cannot be negative" 
+      return res.status(400).json({
+        error: "Tire counts cannot be negative",
       });
     }
 
@@ -528,7 +551,7 @@ async function partialStop(req, res, next) {
 
     // Calculate actual kg
     const actualKg = Math.round(
-      (smallTires * SMALL_TIRE_KG) + (mediumTires * MEDIUM_TIRE_KG)
+      smallTires * SMALL_TIRE_KG + mediumTires * MEDIUM_TIRE_KG
     );
 
     stop.status = "PARTIAL";
@@ -549,18 +572,20 @@ async function partialStop(req, res, next) {
 
     await tour.save();
 
-    log(`⚠️  Stop ${stopId} partially completed: ${actualKg}kg (planned: ${stop.plannedKg}kg)`);
+    log(
+      `⚠️  Stop ${stopId} partially completed: ${actualKg}kg (planned: ${stop.plannedKg}kg)`
+    );
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       tour,
       stopSummary: {
         plannedKg: stop.plannedKg,
         actualKg,
         smallTires,
         mediumTires,
-        shortage: stop.plannedKg - actualKg
-      }
+        shortage: stop.plannedKg - actualKg,
+      },
     });
   } catch (err) {
     next(err);
@@ -569,7 +594,7 @@ async function partialStop(req, res, next) {
 
 /**
  * GET /api/tours/:tourId
- * 
+ *
  * Get tour details
  */
 async function getTour(req, res, next) {
@@ -592,7 +617,7 @@ async function getTour(req, res, next) {
 
 /**
  * GET /api/drivers/:driverId/tours
- * 
+ *
  * Get all tours for a driver (with date filter)
  */
 async function getDriverTours(req, res, next) {
@@ -618,9 +643,9 @@ async function getDriverTours(req, res, next) {
       .populate("stops.demand")
       .sort({ date: -1, createdAt: -1 });
 
-    res.json({ 
+    res.json({
       tours,
-      count: tours.length
+      count: tours.length,
     });
   } catch (err) {
     next(err);
