@@ -274,8 +274,7 @@ async function requestTour(req, res, next) {
     // Create tour document
     const stopDocs = selected.map((sel, idx) => {
       const d = sel.demand;
-      console.log("raw",d)
-      console.log("finished raw")
+
       return {
         demand: d._id,
         signusId: d.signusId, // SIGNUS demand code

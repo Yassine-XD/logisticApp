@@ -42,7 +42,6 @@ async function saveGreedyTours(tours) {
 
       for (const s of t.stops) {
         const demandId = s.demandId; // we need this in planningDemands
-        console.log(s);
         tourDoc.stops.push({
           demand: demandId,
           signusCodigo: s.signusCodigo,

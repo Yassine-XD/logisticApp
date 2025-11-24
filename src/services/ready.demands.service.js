@@ -84,8 +84,6 @@ async function refreshReadyDemandsFromDemands() {
   return summary;
 }
 
-
-
 async function getPlanningDemands({ date }) {
   const target = new Date(date); // planning date
   if (isNaN(target.getTime())) {
@@ -93,7 +91,6 @@ async function getPlanningDemands({ date }) {
   }
 
   const rows = await SignusAlbRec.find().lean();
-  console.log(rows)
 
   return rows.map((rec) => {
     const requestedAt = rec.fechaPeticion || null;

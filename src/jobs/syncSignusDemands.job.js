@@ -1,6 +1,5 @@
 // src/jobs/syncSignusDemands.job.js
 const { fetchAlbRecsRaw } = require("../integrations/signus.client");
-const { upsertDemandsFromAlbRecs } = require("../services/demands.service");
 const { log } = require("../utils/logger");
 
 /**
@@ -23,16 +22,15 @@ async function runDemandsSync() {
       return { success: false, reason: "Invalid data format" };
     }
 
-    const result = await upsertDemandsFromAlbRecs(albRecs.data);
     
     log("✅ Signus demands sync finished:", {
-      created: result.created,
-      updated: result.updated,
-      errors: result.errors,
-      total: result.total,
+      created: albRecs.created,
+      updated: albRecs.updated,
+      errors: albRecs.errors,
+      total: albRecs.total,
     });
 
-    return { success: true, result };
+    return { success: true, albRecs };
   } catch (err) {
     log("❌ Signus demands sync failed:", err.message);
     log("Stack trace:", err.stack);

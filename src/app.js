@@ -1,5 +1,6 @@
 // src/app.js
 const express = require("express");
+const cors = require("cors");
 const { log } = require("./utils/logger");
 
 // Route modules
@@ -16,7 +17,8 @@ const app = express();
  * 1) Global middlewares
  */
 
-// Parse JSON bodies
+// Parse JSON bodies | implement CORS
+app.use(cors({ origin: true }));
 app.use(express.json());
 
 // Simple request logger
