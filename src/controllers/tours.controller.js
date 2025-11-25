@@ -651,6 +651,135 @@ async function getDriverTours(req, res, next) {
   }
 }
 
+async function getActiveTours(req, res, next) {
+  try {
+    const { date } = req.query;
+
+    const queryDate = date ? new Date(date) : new Date();
+    const dayStart = new Date(queryDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(queryDate);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    // Find all active tours (PLANNED or IN_PROGRESS) for the date
+    const tours = await Tour.find({
+      status: { $in: ["PLANNED", "IN_PROGRESS"] },
+    })
+      .populate({
+        path: "driver",
+        populate: { path: "vehicle" },
+      })
+      .populate({
+        path: "stops.demand",
+        select:
+          "garageName garageId geo address contact qtyEstimatedKg requestedAt deadlineAt",
+      })
+      .sort({ createdAt: 1 });
+
+    // Transform tours to match the mockup format
+    const activeTours = tours.map((tour) => {
+      const completedStops = tour.stops.filter((s) =>
+        ["COMPLETED", "PARTIAL"].includes(s.status)
+      ).length;
+
+      const totalStops = tour.stops.length;
+
+      // Find the current/next stop
+      const nextStop = tour.stops.find((s) => s.status === "SCHEDULED");
+      const inProgressStop = tour.stops.find((s) => s.status === "IN_PROGRESS");
+      const currentStop = inProgressStop || nextStop;
+
+      // Calculate estimated completion time (rough estimate)
+      const avgMinutesPerStop = 45; // average time per stop
+      const remainingStops = totalStops - completedStops;
+      const estimatedMinutesLeft = remainingStops * avgMinutesPerStop;
+      const estimatedCompletion = new Date(
+        Date.now() + estimatedMinutesLeft * 60000
+      );
+
+      // Current location (last completed stop or first stop)
+      let currentLocation = null;
+      if (completedStops > 0) {
+        const lastCompleted = tour.stops
+          .filter((s) => ["COMPLETED", "PARTIAL"].includes(s.status))
+          .pop();
+        currentLocation = lastCompleted?.geo || null;
+      } else if (tour.stops[0]?.geo) {
+        currentLocation = tour.stops[0].geo;
+      }
+
+      // Transform stops
+      const stops = tour.stops.map((stop, index) => {
+        // Calculate ETA for scheduled stops
+        let eta = null;
+        if (stop.status === "SCHEDULED") {
+          const stopsUntilThis = tour.stops
+            .slice(0, index)
+            .filter((s) => !["COMPLETED", "PARTIAL"].includes(s.status)).length;
+          const minutesUntil = stopsUntilThis * avgMinutesPerStop;
+          eta = new Date(Date.now() + minutesUntil * 60000)
+            .toTimeString()
+            .slice(0, 5);
+        }
+
+        return {
+          id: stop._id.toString(),
+          name: stop.garageName || "Unknown Garage",
+          address: stop.address
+            ? `${stop.address.street || ""}, ${stop.address.city || ""}`.trim()
+            : "Address not available",
+          phone: stop.contact?.phone || "N/A",
+          kg: stop.plannedKg || 0,
+          status: stop.status,
+          completedAt: stop.completedAt
+            ? new Date(stop.completedAt).toTimeString().slice(0, 5)
+            : null,
+          eta: stop.status === "SCHEDULED" ? eta : null,
+          actualKg: stop.actualKg,
+          notes: stop.notes,
+          geo: stop.geo,
+        };
+      });
+
+      return {
+        id: tour._id.toString(),
+        driver: tour.driver?.name || "Unknown Driver",
+        driverId: tour.driver?._id.toString(),
+        vehicle: tour.driver?.vehicle?.plate || "N/A",
+        status: tour.status,
+        completedStops,
+        totalStops,
+        estimatedCompletion: estimatedCompletion.toTimeString().slice(0, 5),
+        currentLocation,
+        nextStop: currentStop
+          ? {
+              id: currentStop._id.toString(),
+              name: currentStop.garageName || "Unknown Garage",
+              eta:
+                currentStop.status === "SCHEDULED"
+                  ? new Date(Date.now() + avgMinutesPerStop * 60000)
+                      .toTimeString()
+                      .slice(0, 5)
+                  : "Now",
+            }
+          : null,
+        capacityKg: tour.capacityKg,
+        remainingCapacityKg: tour.remainingCapacityKg,
+        totalDistanceKm: tour.totalDistanceKm,
+        stops,
+      };
+    });
+
+    res.json({
+      date: queryDate.toISOString().split("T")[0],
+      total: activeTours.length,
+      tours: activeTours,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   requestTour,
   startTour,
@@ -659,4 +788,5 @@ module.exports = {
   partialStop,
   getTour,
   getDriverTours,
+  getActiveTours,
 };

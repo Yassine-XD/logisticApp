@@ -10,6 +10,7 @@ const driversRoutes = require("./routes/drivers.routes");
 const vehiclesRoutes = require("./routes/vehicles.routes");
 const planRoutes = require("./routes/plan.routes");
 const toursRoutes = require("./routes/tours.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
 
 const app = express();
 
@@ -40,6 +41,7 @@ apiRouter.use(driversRoutes); // /drivers
 apiRouter.use(vehiclesRoutes); // /vehicles
 apiRouter.use(planRoutes); // /plans
 apiRouter.use(toursRoutes); // /tours
+apiRouter.use(dashboardRoutes); // /dashboard
 
 // Prefix all API routes with /api
 app.use("/api", apiRouter);

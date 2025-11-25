@@ -7,9 +7,13 @@ const {
   partialStop,
   getTour,
   getDriverTours,
+  getActiveTours,
 } = require("../controllers/tours.controller");
 
 const router = express.Router();
+
+// GET /api/tours/active - Get all active tours
+router.get("/tours/", getActiveTours);
 
 // Get tour details
 router.get("/tours/:tourId", getTour);
