@@ -6,15 +6,27 @@ const {
   getTourLocations,
   getDashboard,
 } = require("../controllers/dashboard.controller");
+const {
+  authenticateToken,
+  requireRole,
+} = require("../middleware/auth.middleware");
 
 const router = express.Router();
 
-// Combined endpoint (RECOMMENDED) - returns everything in one call
-router.get("/dashboard", getDashboard);
+router.get(
+  "/dashboard",
+  authenticateToken,
+  requireRole("admin", "dispatcher"),
+  getDashboard
+);
 
-// Separate endpoints (if you prefer granular control)
-router.get("/dashboard/stats", getStats);
-router.get("/dashboard/activity", getActivity);
-router.get("/dashboard/tour-locations", getTourLocations);
+router.get(
+  "/dashboard/stats",
+  authenticateToken,
+  requireRole("admin", "dispatcher"),
+  getStats
+);
+router.get("/dashboard/activity", authenticateToken, getActivity);
+router.get("/dashboard/tour-locations", authenticateToken, getTourLocations);
 
 module.exports = router;

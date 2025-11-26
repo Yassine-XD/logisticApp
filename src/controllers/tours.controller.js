@@ -138,19 +138,19 @@ function buildGreedyTour({ driver, demands, start, capacityKg }) {
  */
 async function requestTour(req, res, next) {
   try {
-    const driverIdFromToken = req.body.driverId || req.driverId?.id;
+    // Get driverId from JWT token (set by auth middleware)
+    const driverIdFromToken = req.user.driverId;
     const { lat, lng, date } = req.body;
 
-    // Validation
     if (!driverIdFromToken) {
       return res.status(401).json({
-        error: "Driver authentication required. Please provide driverId.",
+        error: "Driver authentication required",
       });
     }
 
     if (!lat || !lng) {
       return res.status(400).json({
-        error: "Current location required. Please provide lat and lng.",
+        error: "Current location {lat,lng} is required",
       });
     }
 

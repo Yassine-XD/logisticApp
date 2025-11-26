@@ -11,6 +11,7 @@ const vehiclesRoutes = require("./routes/vehicles.routes");
 const planRoutes = require("./routes/plan.routes");
 const toursRoutes = require("./routes/tours.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
+const authRoutes = require("./routes/auth.routes");
 
 const app = express();
 
@@ -33,6 +34,8 @@ app.use((req, res, next) => {
  */
 
 const apiRouter = express.Router();
+// Add to API router (BEFORE other routes to avoid conflicts)
+apiRouter.use(authRoutes); // /auth/*
 
 // Attach feature routes
 apiRouter.use(healthRoutes); // /health
