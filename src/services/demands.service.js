@@ -1,4 +1,6 @@
-// src/services/demands.service.js - FINAL VERSION WITH CORRECT FIELD MAPPING
+// src/services/demands.service.improved.js
+// Replace your existing demands.service.js with this improved version
+
 const Demand = require("../models/Demand");
 const { fetchAlbRecsRaw } = require("../integrations/signus.client");
 const { log } = require("../utils/logger");
@@ -12,148 +14,178 @@ function parseDate(str) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/**
- * FIX: Correct field mapping based on actual SIGNUS API response
- *
- * SIGNUS Fields → Our DB Fields:
- * - codigoPgnu → garageId
- * - nombrePgnu → garageName
- * - kgSolicitadosEstimados → qtyEstimatedKg
- * - unidadesSolicitadas → unitsEstimated
- * - municipio → address.city (NO localidad field exists)
- * - direccion → address.street
- * - latitud/longitud → geo.lat/lng
- */
 function normalizeAlbRec(item) {
-  // Calculate units from lineasRecogidaManual if available
-  const unidadesSolicitadas =
-    item.unidadesSolicitadas ||
-    (item.lineasRecogidaManual || []).reduce(
-      (sum, line) => sum + (line.unidadesSolicitadas || 0),
-      0
-    );
-
-  const kg = item.kgSolicitadosEstimados || 0;
-  const planDate = new Date();
-  const requestedAt = parseDate(item.fechaPeticion);
-  const deadlineAt = parseDate(item.fechaMaxima);
-
-  // Calculate priority
-  let ageDays = 0;
-  if (requestedAt) {
-    ageDays = (planDate - requestedAt) / (1000 * 60 * 60 * 24);
-    if (ageDays < 0) ageDays = 0;
-  }
-
-  let daysToDeadline = 999;
-  if (deadlineAt) {
-    daysToDeadline = (deadlineAt - planDate) / (1000 * 60 * 60 * 24);
-    if (daysToDeadline < 0) daysToDeadline = 0;
-  }
-
-  // Normalize scores (cap at 30 days)
-  const ageScore = Math.min(ageDays / 30, 1);
-  const deadlineScore = 1 - Math.min(daysToDeadline / 30, 1);
-  const weightScore = Math.min(kg / 3000, 1);
-
-  // Final priority 0–100
-  const priority =
-    (0.4 * ageScore + 0.4 * deadlineScore + 0.2 * weightScore) * 100;
+  const unidadesSolicitadas = (item.lineasRecogidaManual || []).reduce(
+    (sum, line) => sum + (line.unidadesSolicitadas || 0),
+    0
+  );
 
   return {
-    // Identifiers
     signusId: item.codigo,
     estadoCod: item.estadoCod,
     estado: item.estado,
 
-    // Garage info
-    garageId: item.codigoPgnu,
-    garageName: item.nombrePgnu,
+    codigoPgnu: item.codigoPgnu,
+    nombrePgnu: item.nombrePgnu,
+    telefonoPgnu: (item.telefonoPgnu || "").trim(),
 
-    // Location - CORRECT MAPPING
-    geo: {
-      lat: item.latitud,
-      lng: item.longitud,
-    },
+    latitud: item.latitud,
+    longitud: item.longitud,
+    direccion: (item.direccion || "").trim(),
+    codigoPostal: item.codigoPostal,
+    municipio: item.municipio,
+    provincia: item.provincia,
+    comunidad: item.comunidad,
+    pais: item.pais,
 
-    // Address - FIX: municipio is the city, NO localidad field
-    address: {
-      street: (item.direccion || "").trim(),
-      postalCode: item.codigoPostal,
-      city: item.municipio, // ← FIX: Just use municipio, no fallback needed
-      municipality: item.municipio,
-      province: item.provincia,
-      region: item.comunidad,
-      country: item.pais,
-    },
+    kgSolicitadosEstimados: item.kgSolicitadosEstimados,
+    unidadesSolicitadas,
 
-    // Contact
-    contact: {
-      phone: (item.telefonoPgnu || "").trim(),
-    },
+    fechaPeticion: parseDate(item.fechaPeticion),
+    fechaMaxima: parseDate(item.fechaMaxima),
+    fechaRealRecogida: parseDate(item.fechaRealRecogida),
 
-    // Quantities - CORRECT FIELD NAMES
-    qtyEstimatedKg: kg,
-    unitsEstimated: unidadesSolicitadas,
-
-    // Dates
-    requestedAt,
-    deadlineAt,
-
-    // Add actual collection date if exists
-    actualCollectionAt: parseDate(item.fechaRealRecogida),
-
-    // Priority calculated at sync time
-    priority: Math.round(priority),
-
-    // Notes
-    notes: item.observacionesPeticion,
-
-    // IMPORTANT: Save complete raw data for future reference
+    observacionesPeticion: item.observacionesPeticion,
     raw: item,
   };
 }
 
 /**
- * Upsert demands with improved error handling
+ * IMPROVED VERSION: Handles duplicates gracefully
+ * Uses bulkWrite for better performance and error handling
  */
 async function upsertDemandsFromAlbRecs(albRecs) {
   if (!Array.isArray(albRecs)) {
-    log("⚠️  upsertDemandsFromAlbRecs called with non-array, aborting");
-    return { created: 0, updated: 0, total: 0, errors: 0, skipped: 0 };
+    log("upsertDemandsFromAlbRecs called with non-array, aborting");
+    return { created: 0, updated: 0, errors: 0, total: 0 };
   }
 
-  log(`📥 Signus albRecs total received: ${albRecs.length}`);
+  log("Signus albRecs total received:", albRecs.length);
+
+  // STEP 1: Deduplicate input array by signusId
+  const uniqueMap = new Map();
+  albRecs.forEach((item) => {
+    const signusId = item.codigo;
+    if (signusId) {
+      // Keep the last occurrence (most recent)
+      uniqueMap.set(signusId, item);
+    }
+  });
+
+  const uniqueAlbRecs = Array.from(uniqueMap.values());
+
+  if (uniqueAlbRecs.length < albRecs.length) {
+    log(
+      `⚠️  Removed ${
+        albRecs.length - uniqueAlbRecs.length
+      } duplicate entries from input`
+    );
+  }
+
+  log("Processing unique albRecs:", uniqueAlbRecs.length);
+
+  // STEP 2: Prepare bulk operations
+  const bulkOps = uniqueAlbRecs.map((item) => {
+    const normalized = normalizeAlbRec(item);
+
+    return {
+      updateOne: {
+        filter: { signusId: normalized.signusId },
+        update: { $set: normalized },
+        upsert: true,
+      },
+    };
+  });
+
+  if (bulkOps.length === 0) {
+    log("No operations to perform");
+    return { created: 0, updated: 0, errors: 0, total: 0 };
+  }
+
+  // STEP 3: Execute bulk operation with error handling
+  let created = 0;
+  let updated = 0;
+  let errors = 0;
+
+  try {
+    const result = await Demand.bulkWrite(bulkOps, {
+      ordered: false, // Continue even if some operations fail
+    });
+
+    created = result.upsertedCount || 0;
+    updated = result.modifiedCount || 0;
+
+    log("Bulk operation successful:", {
+      created,
+      updated,
+      matched: result.matchedCount,
+    });
+  } catch (err) {
+    // Handle bulk write errors
+    if (err.code === 11000 || err.name === "BulkWriteError") {
+      log("⚠️  Bulk write had some errors (likely duplicates):", err.message);
+
+      // Extract successful operations from result
+      if (err.result) {
+        created = err.result.nUpserted || 0;
+        updated = err.result.nModified || 0;
+        errors = err.writeErrors?.length || 0;
+
+        log("Partial success:", { created, updated, errors });
+      }
+    } else {
+      // Unexpected error
+      log("❌ Unexpected error in bulkWrite:", err);
+      throw err;
+    }
+  }
+
+  const result = {
+    created,
+    updated,
+    errors,
+    total: uniqueAlbRecs.length,
+  };
+
+  log("Demands upsert result:", result);
+  return result;
+}
+
+/**
+ * ALTERNATIVE: Individual upsert with better error handling
+ * Use this if bulkWrite causes issues
+ */
+async function upsertDemandsFromAlbRecsIndividual(albRecs) {
+  if (!Array.isArray(albRecs)) {
+    log("upsertDemandsFromAlbRecs called with non-array, aborting");
+    return { created: 0, updated: 0, errors: 0, total: 0 };
+  }
+
+  log("Signus albRecs total received:", albRecs.length);
+
+  // Deduplicate input
+  const uniqueMap = new Map();
+  albRecs.forEach((item) => {
+    if (item.codigo) {
+      uniqueMap.set(item.codigo, item);
+    }
+  });
+
+  const uniqueAlbRecs = Array.from(uniqueMap.values());
+  log("Processing unique albRecs:", uniqueAlbRecs.length);
 
   let created = 0;
   let updated = 0;
   let errors = 0;
-  let skipped = 0;
 
-  for (const item of albRecs) {
+  for (const item of uniqueAlbRecs) {
     try {
-      // Validate required fields
-      if (!item.codigo) {
-        log(`⚠️  Skipping item - missing codigo`);
-        skipped++;
-        continue;
-      }
-
       const normalized = normalizeAlbRec(item);
 
-      // Skip demands without coordinates
-      if (!normalized.geo.lat || !normalized.geo.lng) {
-        log(`⚠️  Skipping demand ${normalized.signusId} - missing coordinates`);
-        skipped++;
-        continue;
-      }
-
-      // Skip if no weight (can't plan route)
-      if (!normalized.qtyEstimatedKg || normalized.qtyEstimatedKg <= 0) {
-        log(`⚠️  Skipping demand ${normalized.signusId} - no weight specified`);
-        skipped++;
-        continue;
-      }
+      // Get existing document to check if it's new
+      const existing = await Demand.findOne({
+        signusId: normalized.signusId,
+      });
 
       const doc = await Demand.findOneAndUpdate(
         { signusId: normalized.signusId },
@@ -165,29 +197,43 @@ async function upsertDemandsFromAlbRecs(albRecs) {
         }
       );
 
-      // Determine if this was a create or update
-      if (
-        doc.createdAt &&
-        doc.updatedAt &&
-        Math.abs(doc.createdAt.getTime() - doc.updatedAt.getTime()) < 1000 // within 1 second
-      ) {
+      if (!existing) {
         created += 1;
       } else {
         updated += 1;
       }
     } catch (err) {
-      log(`❌ Error upserting demand ${item.codigo}:`, err.message);
-      errors++;
+      // Handle duplicate key error gracefully
+      if (err.code === 11000) {
+        log(`⚠️  Duplicate key for signusId ${item.codigo}, skipping...`);
+        errors += 1;
+      } else {
+        log(`❌ Error upserting signusId ${item.codigo}:`, err.message);
+        errors += 1;
+      }
     }
   }
 
-  const result = { created, updated, total: albRecs.length, errors, skipped };
-  log("✅ Demands upsert result:", result);
+  const result = { created, updated, errors, total: uniqueAlbRecs.length };
+  log("Demands upsert result:", result);
   return result;
 }
 
+function dateMinus3Months() {
+  const today = new Date();
+  const target = new Date(today);
+  target.setMonth(target.getMonth() - 3);
+
+  const year = target.getFullYear();
+  const month = String(target.getMonth() + 1).padStart(2, "0");
+  const day = String(target.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
 /**
- * List demands from MongoDB with filters
+ * List demands from Mongo with filters.
+ * Used for planning (LLM / OR-Tools input).
  */
 async function listDemands(opts = {}) {
   const {
@@ -196,7 +242,7 @@ async function listDemands(opts = {}) {
     to,
     page = 1,
     limit = 50,
-    sortBy = "requestedAt",
+    sortBy = "fechaPeticion",
     sortDir = "desc",
   } = opts;
 
@@ -209,14 +255,14 @@ async function listDemands(opts = {}) {
 
   filter.estadoCod = { $in: statusList };
 
-  // Date range on requestedAt
-  const fromDate = from ? parseDate(from) : null;
-  const toDate = to ? parseDate(to) : null;
+  // Date range on fechaPeticion
+  const fromDate = parseDate(from) || dateMinus3Months();
+  const toDate = parseDate(to);
 
   if (fromDate || toDate) {
-    filter.requestedAt = {};
-    if (fromDate) filter.requestedAt.$gte = fromDate;
-    if (toDate) filter.requestedAt.$lte = toDate;
+    filter.fechaPeticion = {};
+    if (fromDate) filter.fechaPeticion.$gte = fromDate;
+    if (toDate) filter.fechaPeticion.$lte = toDate;
   }
 
   const skip = (Number(page) - 1) * Number(limit);
@@ -224,9 +270,8 @@ async function listDemands(opts = {}) {
     [sortBy]: sortDir === "asc" ? 1 : -1,
   };
 
-  // Use the filter we built
   const [items, total] = await Promise.all([
-    Demand.find(filter).sort(sort).skip(skip).limit(Number(limit)).lean(),
+    Demand.find(filter).sort(sort).skip(skip).limit(Number(limit)),
     Demand.countDocuments(filter),
   ]);
 
@@ -238,78 +283,96 @@ async function listDemands(opts = {}) {
   };
 }
 
-/**
- * Get planning demands for greedy algorithm
- * Now simplified since priority is stored in DB
- */
-async function getPlanningDemands({ date } = {}) {
-  try {
-    const raw = await fetchAlbRecsRaw();
+async function getPlanningDemands({ date }) {
+  const raw = await fetchAlbRecsRaw();
+  const items = raw.data || [];
 
-    if (!raw || !raw.data) {
-      log("⚠️  No data returned from Signus API");
-      return [];
-    }
+  const planDate = date ? new Date(date) : new Date();
 
-    const items = raw.data || [];
-    const planDate = date ? new Date(date) : new Date();
+  // We only plan over "live" demands
+  const planningEstados = new Set(["EN_CURSO", "ASIGNADA", "EN_TRANSITO"]);
 
-    // Only plan over "live" demands
-    const planningEstados = new Set(["EN_CURSO", "ASIGNADA", "EN_TRANSITO"]);
+  const demands = items
+    .filter((row) => planningEstados.has(row.estadoCod))
+    .map((row) => {
+      const kg = row.kgSolicitadosEstimados || 0;
 
-    const demands = items
-      .filter((row) => {
-        // Must have planning status
-        if (!planningEstados.has(row.estadoCod)) return false;
+      const requestedAt = row.fechaPeticion
+        ? new Date(row.fechaPeticion)
+        : null;
+      const deadlineAt = row.fechaMaxima ? new Date(row.fechaMaxima) : null;
 
-        // Must have coordinates
-        if (!row.latitud || !row.longitud) return false;
+      // Age in days (how long since requested)
+      let ageDays = 0;
+      if (requestedAt) {
+        ageDays = (planDate - requestedAt) / (1000 * 60 * 60 * 24);
+        if (ageDays < 0) ageDays = 0;
+      }
 
-        // Must have weight
-        if (!row.kgSolicitadosEstimados || row.kgSolicitadosEstimados <= 0)
-          return false;
+      // Days left to deadline (how close to fechaMaxima)
+      let daysToDeadline = 999;
+      if (deadlineAt) {
+        daysToDeadline = (deadlineAt - planDate) / (1000 * 60 * 60 * 24);
+        if (daysToDeadline < 0) daysToDeadline = 0;
+      }
 
-        return true;
-      })
-      .map((row) => {
-        const kg = row.kgSolicitadosEstimados || 0;
-        const requestedAt = row.fechaPeticion
-          ? new Date(row.fechaPeticion)
-          : null;
-        const deadlineAt = row.fechaMaxima ? new Date(row.fechaMaxima) : null;
+      // Normalize scores (cap at 30 days so extremely old doesn't dominate)
+      const ageScore = Math.min(ageDays / 30, 1); // 0..1 (older => closer to 1)
+      const deadlineScore = 1 - Math.min(daysToDeadline / 30, 1); // 0..1 (sooner => closer to 1)
+      const weightScore = Math.min(kg / 3000, 1); // 0..1 (more kg => closer to 1)
 
-        // Calculate age and deadline metrics for display
-        let ageDays = 0;
-        if (requestedAt) {
-          ageDays = (planDate - requestedAt) / (1000 * 60 * 60 * 24);
-          if (ageDays < 0) ageDays = 0;
-        }
+      // Final priority 0–100 (tune weights as you like)
+      const priority =
+        (0.4 * ageScore + 0.4 * deadlineScore + 0.2 * weightScore) * 100;
 
-        let daysToDeadline = 999;
-        if (deadlineAt) {
-          daysToDeadline = (deadlineAt - planDate) / (1000 * 60 * 60 * 24);
-          if (daysToDeadline < 0) daysToDeadline = 0;
-        }
+      return {
+        // === fields in new Demand model ===
+        signusId: row.codigo,           // Number
+        garageId: row.codigoPgnu,       // String
+        garageName: row.nombrePgnu,     // String
+        kg,
 
-        // Calculate priority
-        const ageScore = Math.min(ageDays / 30, 1);
-        const deadlineScore = 1 - Math.min(daysToDeadline / 30, 1);
-        const weightScore = Math.min(kg / 3000, 1);
-        const priority =
-          (0.4 * ageScore + 0.4 * deadlineScore + 0.2 * weightScore) * 100;
+        geo: {
+          lng: row.longitud ?? null,    // nullable Number to match schema
+          lat: row.latitud ?? null,
+        },
 
-        return normalizeAlbRec(row);
-      });
+        requestedAt,
+        deadlineAt,
+        ageDays: Number(ageDays.toFixed(1)),
+        daysToDeadline: Number(daysToDeadline.toFixed(1)),
+        priority: Math.round(priority),
 
-    // Sort by priority (highest first)
-    const created = await Demand.insertMany(demands);
+        contactPhone: row.telefonoPgnu || null,
 
-    log(`✅ Planning demands prepared: ${demands.length} items`);
-    return created;
-  } catch (err) {
-    log(`❌ Error in getPlanningDemands:`, err.message);
-    return [];
-  }
+        address: {
+          street: (row.direccion && row.direccion.trim()) || null,
+          postalCode: row.codigoPostal || null,
+          city: row.localidad || row.municipio || null,
+          municipality: row.municipio || null,
+          province: row.provincia || null,
+          region: row.comunidad || null,
+          country: row.pais || null,
+        },
+
+        // keep full SIGNUS payload for debugging / audits
+        raw: row,
+      };
+    });
+
+  // Sort by priority (highest first) as a base ordering
+  demands.sort((a, b) => b.priority - a.priority);
+
+  console.log("[getPlanningDemands] first item from SIGNUS:", items[0]);
+  console.log(
+    "[getPlanningDemands] prepared",
+    demands.length,
+    "demands for insert"
+  );
+
+  // match the model: documents already shaped for DemandSchema
+  const result = await Demand.insertMany(demands, { ordered: false });
+  return result;
 }
 
 module.exports = {
@@ -317,4 +380,5 @@ module.exports = {
   listDemands,
   getPlanningDemands,
   upsertDemandsFromAlbRecs,
+  upsertDemandsFromAlbRecsIndividual, // Alternative method
 };

@@ -1,99 +1,62 @@
-// src/models/Demand.js - FIXED TO MATCH ACTUAL SIGNUS DATA
+// src/models/Demand.js
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
 const DemandSchema = new Schema(
   {
-    // SIGNUS identifiers
-    signusId: { type: Number, unique: true, index: true, required: true }, // codigo from SIGNUS
-    signusAlbRec: { type: String, index: true }, // Full albarán code from SIGNUS
+    // SIGNUS / demand identifiers
+    signusId: { type: Number, required: true, unique: true, index: true }, // 2221760
+    garageId: { type: String, required: true, index: true },               // "G0890308"
+    garageName: { type: String },                                          // "AUTO 2000"
 
-    // Status from SIGNUS (estadoCod, estado)
-    estadoCod: { type: String, index: true }, // "EN_CURSO", "ASIGNADA", "EN_TRANSITO"
-    estado: String, // Human readable: "En curso", "En tránsito"
+    // Total kg requested for this demand
+    kg: { type: Number, required: true },                                  // 3432
 
-    // Garage (PGNU) info
-    garageId: { type: String, index: true }, // codigoPgnu: "G0803711"
-    garageName: String, // nombrePgnu: "Rodi Motor Services"
-
-    // Location - CORRECT STRUCTURE
+    // Location (can be missing → NOT required)
     geo: {
-      lat: { type: Number, required: true }, // latitud: 41.39826
-      lng: { type: Number, required: true }, // longitud: 2.1655
+      lng: { type: Number, default: null },                                // undefined in your logs
+      lat: { type: Number, default: null },
     },
 
-    // Address - FIXED: No localidad, just municipio
-    address: {
-      street: String,         // direccion: "AV/ DIAGONAL, 404"
-      postalCode: String,     // codigoPostal: "08037"
-      city: String,           // municipio: "Barcelona" (NO localidad!)
-      municipality: String,   // municipio: "Barcelona"
-      province: String,       // provincia: "Barcelona"
-      region: String,         // comunidad: "Cataluña"
-      country: String,        // pais: "España"
-    },
+    // Dates
+    requestedAt: { type: Date, required: true, index: true },              // 2025-11-13T23:00:00.000Z
+    deadlineAt: { type: Date, required: true, index: true },               // 2025-11-28T22:59:59.000Z
+
+    // Derived metrics (optional, can be recomputed)
+    ageDays: { type: Number },                                             // 13.6
+    daysToDeadline: { type: Number },                                      // 1.4
+
+    // Our internal priority score (0–100)
+    priority: { type: Number, default: 0, index: true },                   // 76
 
     // Contact
-    contact: {
-      phone: String, // telefonoPgnu: "934594051"
+    contactPhone: { type: String },                                        // "934406572"
+
+    // Address (normalized from SIGNUS data)
+    address: {
+      street: { type: String },                                            // "C/ CLARET, 18"
+      postalCode: { type: String },                                        // "08903"
+      city: { type: String },                                              // "HOSPITALET DE LLOBREGAT, L'"
+      municipality: { type: String },                                      // "Hospitalet de Llobregat, L'"
+      province: { type: String },                                          // "Barcelona"
+      region: { type: String },                                            // "Cataluña"
+      country: { type: String },                                           // "España"
     },
 
-    // Quantities - CORRECT FIELD NAMES
-    qtyEstimatedKg: { type: Number, index: true }, // kgSolicitadosEstimados: 1287
-    unitsEstimated: Number, // unidadesSolicitadas: 150
-
-    // Dates from SIGNUS
-    requestedAt: { type: Date, index: true }, // fechaPeticion
-    deadlineAt: { type: Date, index: true },  // fechaMaxima
-    actualCollectionAt: Date, // fechaRealRecogida (usually null until collected)
-
-    // Notes from SIGNUS
-    notes: String, // observacionesPeticion: "urgente"
-
-    // INTERNAL STATUS (our system's tracking)
-    status: {
-      type: String,
-      enum: [
-        "NEW",          // Just synced from SIGNUS
-        "CONFIRMING",   // We're validating it
-        "CONFIRMED",    // Ready for planning
-        "SCHEDULED",    // Assigned to a tour
-        "IN_PROGRESS",  // Driver is on the way
-        "PARTIAL",      // Partially collected
-        "COMPLETED",    // Fully collected
-        "NOT_READY",    // Garage not ready
-        "EXPIRED",      // Past deadline
-        "CANCELED",     // Cancelled
-      ],
-      default: "NEW",
-      index: true,
-    },
-
-    // Priority score (0-100, calculated at sync time)
-    priority: { type: Number, index: true, default: 0 },
-
-    // Assignment tracking
-    assigned: {
-      driverId: { type: Schema.Types.ObjectId, ref: "Driver" },
-      tourId: { type: Schema.Types.ObjectId, ref: "Tour" },
-      date: Date,
-    },
-
-    // IMPORTANT: Keep complete raw SIGNUS data for debugging/audit
+    // Optional: keep full raw SIGNUS payload for debug/audit
     raw: { type: Schema.Types.Mixed },
   },
-  { 
+  {
     timestamps: true,
-    // Add index for common queries
-    indexes: [
-      { estadoCod: 1, priority: -1 },
-      { status: 1, priority: -1 },
-      { garageId: 1, requestedAt: -1 },
-    ]
   }
 );
 
-// Add index for geospatial queries (if needed in future)
-DemandSchema.index({ geo: "2dsphere" });
+// Helpful indexes for queries
+DemandSchema.index({ garageId: 1, deadlineAt: 1 });
+DemandSchema.index({ "address.province": 1, priority: -1 });
+DemandSchema.index({ "address.city": 1, priority: -1 });
+
+// If later you switch to GeoJSON, you can add a 2dsphere index,
+// but with {lat, lng} you should NOT use a 2dsphere index directly.
 
 module.exports = mongoose.model("Demand", DemandSchema);

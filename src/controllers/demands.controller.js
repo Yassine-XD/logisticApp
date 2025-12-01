@@ -1,12 +1,7 @@
-// src/controllers/demands.controller.js
-const {
-  listDemands,
-  getPlanningDemands,
-} = require("../services/demands.service");
+const { getPlanningDemands } = require("../services/demands.service");
 const {
   refreshReadyDemandsFromDemands,
 } = require("../services/ready.demands.service");
-const { log } = require("../utils/logger");
 
 /**
  * GET /demands
@@ -49,16 +44,15 @@ async function getDemands(req, res, next) {
 
 async function fetchDataFromSignus(req, res, next) {
   try {
-    const result = await getPlanningDemands();
-    
+    const raw = await getPlanningDemands(new Date());
 
     res.json({
-      Total: result.length,
-      data: result,
+      Total: raw.length,
+      data: raw,
     });
   } catch (error) {
     res.json({
-      err,
+      error,
     });
   }
 }
@@ -79,5 +73,5 @@ async function refreshPreDemands(req, res, next) {
 module.exports = {
   refreshPreDemands,
   getDemands,
-  fetchDataFromSignus
+  fetchDataFromSignus,
 };
