@@ -1,32 +1,12 @@
 // src/routes/dashboard.routes.js
 const express = require("express");
-const {
-  getStats,
-  getActivity,
-  getTourLocations,
-  getDashboard,
-} = require("../controllers/dashboard.controller");
-const {
-  authenticateToken,
-  requireRole,
-} = require("../middleware/auth.middleware");
+const { getKpis, getDashboard } = require("../controllers/dashboard.controller");
+const { authenticateToken, requireRole } = require("../middleware/auth.middleware");
 
 const router = express.Router();
+const planners = requireRole("admin", "dispatcher");
 
-router.get(
-  "/dashboard",
-  authenticateToken,
-  requireRole("admin", "dispatcher"),
-  getDashboard
-);
-
-router.get(
-  "/dashboard/stats",
-  authenticateToken,
-  requireRole("admin", "dispatcher"),
-  getStats
-);
-router.get("/dashboard/activity", authenticateToken, getActivity);
-router.get("/dashboard/tour-locations", authenticateToken, getTourLocations);
+router.get("/dashboard", authenticateToken, planners, getDashboard);
+router.get("/dashboard/kpis", authenticateToken, planners, getKpis);
 
 module.exports = router;

@@ -6,18 +6,18 @@ const {
   createVehicle,
   updateVehicle,
   deleteVehicle,
-  createVehiclesBulk
+  createVehiclesBulk,
 } = require("../controllers/vehicles.controller");
+const { authenticateToken, requireRole } = require("../middleware/auth.middleware");
 
 const router = express.Router();
+const manage = requireRole("admin", "dispatcher");
 
-// /api/vehicles
-router.get("/vehicles", listVehicles);
-router.get("/vehicles/:id", getVehicle);
-router.post("/vehicles", createVehicle);
-router.put("/vehicles/:id", updateVehicle);
-router.delete("/vehicles/:id", deleteVehicle);
-router.post("/vehicles/bulk", createVehiclesBulk);
-
+router.get("/vehicles", authenticateToken, listVehicles);
+router.post("/vehicles", authenticateToken, manage, createVehicle);
+router.post("/vehicles/bulk", authenticateToken, requireRole("admin"), createVehiclesBulk);
+router.get("/vehicles/:id", authenticateToken, getVehicle);
+router.put("/vehicles/:id", authenticateToken, manage, updateVehicle);
+router.delete("/vehicles/:id", authenticateToken, manage, deleteVehicle);
 
 module.exports = router;

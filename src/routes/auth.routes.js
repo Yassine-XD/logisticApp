@@ -1,7 +1,6 @@
 // src/routes/auth.routes.js
 const express = require("express");
 const {
-  register,
   login,
   refreshToken,
   logout,
@@ -12,12 +11,11 @@ const { authenticateToken } = require("../middleware/auth.middleware");
 
 const router = express.Router();
 
-// Public routes
-router.post("/auth/register", register);
+// Public
 router.post("/auth/login", login);
 router.post("/auth/refresh", refreshToken);
 
-// Protected routes
+// Protected (self)
 router.post("/auth/logout", authenticateToken, logout);
 router.get("/auth/me", authenticateToken, getCurrentUser);
 router.put("/auth/change-password", authenticateToken, changePassword);

@@ -1,4 +1,15 @@
 node_modules/
 .env
+.env.local
+*.log
 npm-debug.log
 .DS_Store
+
+# Real SIGNUS data dumps must never be committed. Use src/fixtures/demo-demands.json.
+data.txt
+*.signus-dump.json
+
+# Build output
+dist/
+frontend/dist/
+coverage/

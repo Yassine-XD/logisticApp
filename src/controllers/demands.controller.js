@@ -1,33 +1,36 @@
-const { getPlanningDemands } = require("../services/demands.service");
-const {
-  refreshReadyDemandsFromDemands,
-} = require("../services/ready.demands.service");
+// src/controllers/demands.controller.js
+const { listDemands } = require("../services/demands.service");
+const { runSync, getLastRun } = require("../jobs/sync.job");
+const { log } = require("../utils/logger");
 
 /**
- * GET /demands
- * Query params:
- *   - estadoCod: "EN_CURSO,ASIGNADA,EN_TRANSITO"
- *   - from: "2025-11-01"
- *   - to: "2025-11-11"
- *   - page: number
- *   - limit: number
- *   - sortBy: "fechaPeticion" | "fechaMaxima" | "kgSolicitadosEstimados"
- *   - sortDir: "asc" | "desc"
+ * GET /demands — list synced demands with filters.
+ * Query: estadoCod, status, province, urgentOnly, from, to, page, limit, sortBy, sortDir
  */
 async function getDemands(req, res, next) {
   try {
-    const { estadoCod, from, to, page, limit, sortBy, sortDir } = req.query;
+    const {
+      estadoCod,
+      status,
+      province,
+      urgentOnly,
+      from,
+      to,
+      page,
+      limit,
+      sortBy,
+      sortDir,
+    } = req.query;
 
-    let estados = undefined;
-    if (estadoCod) {
-      estados = estadoCod
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }
+    const estados = estadoCod
+      ? estadoCod.split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
 
     const result = await listDemands({
       estados,
+      status,
+      province,
+      urgentOnly: urgentOnly === "true",
       from,
       to,
       page,
@@ -36,42 +39,30 @@ async function getDemands(req, res, next) {
       sortDir,
     });
 
-    res.json(result);
+    res.json({ ...result, lastSync: getLastRun() });
   } catch (err) {
     next(err);
   }
 }
 
-async function fetchDataFromSignus(req, res, next) {
+/**
+ * POST /demands/sync — trigger an on-demand SIGNUS sync (admin/dispatcher).
+ */
+async function syncNow(req, res) {
   try {
-    const raw = await getPlanningDemands(new Date());
-
-    res.json({
-      Total: raw.length,
-      data: raw,
-    });
-  } catch (error) {
-    res.json({
-      error,
-    });
+    const summary = await runSync("manual");
+    res.json({ success: true, summary });
+  } catch (err) {
+    log.error("Manual sync failed:", err.message);
+    res.status(502).json({ success: false, error: err.message });
   }
 }
 
-async function refreshPreDemands(req, res, next) {
-  try {
-    const candidtas = await refreshReadyDemandsFromDemands();
-    res.json(candidtas);
-  } catch (error) {
-    res.json({
-      status: "Failed",
-      message: error.message,
-    });
-    next();
-  }
+/**
+ * GET /demands/sync-status — last sync result.
+ */
+async function syncStatus(req, res) {
+  res.json({ lastSync: getLastRun() });
 }
 
-module.exports = {
-  refreshPreDemands,
-  getDemands,
-  fetchDataFromSignus,
-};
+module.exports = { getDemands, syncNow, syncStatus };

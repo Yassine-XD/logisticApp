@@ -8,48 +8,25 @@ const {
   deleteDriver,
   createDriversBulk,
 } = require("../controllers/drivers.controller");
-const { requestTour } = require("../controllers/tours.controller");
-const {
-  authenticateToken,
-  requireRole,
-} = require("../middleware/auth.middleware");
+const { getDriverTours } = require("../controllers/tours.controller");
+const { authenticateToken, requireRole } = require("../middleware/auth.middleware");
+
 const router = express.Router();
+const manage = requireRole("admin", "dispatcher");
 
-// /api/drivers
-router.get("/drivers", authenticateToken, requireRole("admin"), listDrivers);
+router.get("/drivers", authenticateToken, manage, listDrivers);
+router.post("/drivers", authenticateToken, manage, createDriver);
+router.post("/drivers/bulk", authenticateToken, requireRole("admin"), createDriversBulk);
+router.get("/drivers/:id", authenticateToken, requireRole("admin", "dispatcher", "driver"), getDriver);
+router.put("/drivers/:id", authenticateToken, manage, updateDriver);
+router.delete("/drivers/:id", authenticateToken, manage, deleteDriver);
+
+// A driver's tours (drivers may only read their own — enforced in controller)
 router.get(
-  "/drivers/:id",
+  "/drivers/:driverId/tours",
   authenticateToken,
-  requireRole("driver", "admin"),
-  getDriver
-);
-router.post("/drivers", authenticateToken, requireRole("admin"), createDriver);
-
-router.put(
-  "/drivers/:id",
-  authenticateToken,
-  requireRole("admin"),
-  updateDriver
-);
-router.delete(
-  "/drivers/:id",
-  authenticateToken,
-  requireRole("admin"),
-  deleteDriver
-);
-router.post(
-  "/drivers/bulk",
-  authenticateToken,
-  requireRole("admin"),
-  createDriversBulk
-);
-
-// Driver asks for his next tour
-router.post(
-  "/drivers/me/tours/request",
-  authenticateToken,
-  requireRole("driver", "admin"),
-  requestTour
+  requireRole("admin", "dispatcher", "driver"),
+  getDriverTours
 );
 
 module.exports = router;

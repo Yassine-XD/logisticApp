@@ -43,6 +43,7 @@ async function createDriver(req, res, next) {
       vehicle,    // vehicle ObjectId (optional)
       active,
       homeBase,
+      maxDailyTours,
     } = req.body;
 
     const driver = await Driver.create({
@@ -50,9 +51,10 @@ async function createDriver(req, res, next) {
       phone,
       signusCode,
       nif,
-      vehicle,
+      vehicle: vehicle || undefined,
       active,
       homeBase,
+      maxDailyTours,
     });
 
     res.status(201).json(driver);

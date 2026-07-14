@@ -62,6 +62,9 @@ const StopSchema = new Schema(
 const TourSchema = new Schema(
   {
     driver: { type: Schema.Types.ObjectId, ref: "Driver", required: true },
+    vehicle: { type: Schema.Types.ObjectId, ref: "Vehicle" },
+    plan: { type: Schema.Types.ObjectId, ref: "Plan", index: true },
+    tourIndex: { type: Number, default: 0 }, // which tour of the driver's day
     date: { type: Date, required: true },
 
     status: {

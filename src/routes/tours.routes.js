@@ -1,56 +1,26 @@
 // src/routes/tours.routes.js
 const express = require("express");
 const {
+  getActiveTours,
+  getMyTours,
+  getTour,
   startTour,
   completeStop,
-  notReadyStop,
   partialStop,
-  getTour,
-  getDriverTours,
-  getActiveTours,
+  notReadyStop,
 } = require("../controllers/tours.controller");
-
-const {
-  authenticateToken,
-  requireRole,
-} = require("../middleware/auth.middleware");
+const { authenticateToken, requireRole } = require("../middleware/auth.middleware");
 
 const router = express.Router();
+const driverOrUp = requireRole("admin", "dispatcher", "driver");
 
-// GET /api/tours/active - Get all active tours
-router.get("/tours/active", authenticateToken, getActiveTours);
+router.get("/tours/active", authenticateToken, requireRole("admin", "dispatcher"), getActiveTours);
+router.get("/tours/mine", authenticateToken, requireRole("driver", "admin"), getMyTours);
+router.get("/tours/:tourId", authenticateToken, driverOrUp, getTour);
 
-// Get tour details
-router.get("/tours/:tourId", authenticateToken, getTour);
-
-// Get all tours for a driver
-router.get("/drivers/:driverId/tours", authenticateToken, getDriverTours);
-
-// Start a tour
-router.post("/tours/:tourId/start", authenticateToken, startTour);
-
-// Complete a stop (with tire counts)
-router.post(
-  "/tours/:tourId/stops/:stopId/complete",
-  authenticateToken,
-  requireRole("driver", "admin"),
-  completeStop
-);
-
-// Mark stop as not ready
-router.post(
-  "/tours/:tourId/stops/:stopId/not-ready",
-  authenticateToken,
-  requireRole("driver", "admin"),
-  notReadyStop
-);
-
-// Mark stop as partial collection
-router.post(
-  "/tours/:tourId/stops/:stopId/partial",
-  authenticateToken,
-  requireRole("driver", "admin"),
-  partialStop
-);
+router.post("/tours/:tourId/start", authenticateToken, driverOrUp, startTour);
+router.post("/tours/:tourId/stops/:stopId/complete", authenticateToken, driverOrUp, completeStop);
+router.post("/tours/:tourId/stops/:stopId/partial", authenticateToken, driverOrUp, partialStop);
+router.post("/tours/:tourId/stops/:stopId/not-ready", authenticateToken, driverOrUp, notReadyStop);
 
 module.exports = router;
