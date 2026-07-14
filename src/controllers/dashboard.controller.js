@@ -13,12 +13,19 @@ function rangeOrToday(from, to) {
   return { start, end };
 }
 
-/** Aggregate collected kg + compliance over completed/partial stops in range. */
+/** Aggregate collected kg + compliance over completed/partial stops in range.
+ *  Keyed on the ACTUAL collection time (stops.completedAt), not the tour's
+ *  planned date — a tour planned for a future day still counts on the day its
+ *  stops were actually collected. */
 async function collectionStats(start, end) {
   const rows = await Tour.aggregate([
-    { $match: { date: { $gte: start, $lte: end } } },
     { $unwind: "$stops" },
-    { $match: { "stops.status": { $in: ["COMPLETED", "PARTIAL"] } } },
+    {
+      $match: {
+        "stops.status": { $in: ["COMPLETED", "PARTIAL"] },
+        "stops.completedAt": { $gte: start, $lte: end },
+      },
+    },
     {
       $group: {
         _id: null,
@@ -106,9 +113,12 @@ async function getDashboard(req, res, next) {
     const [today, week, activeTours, urgentBacklog, pendingDemands] = await Promise.all([
       collectionStats(todayStart, todayEnd),
       collectionStats(weekStart, todayEnd),
+      // "Active now" = anything IN_PROGRESS (any planned date) or PLANNED today.
       Tour.find({
-        date: { $gte: todayStart, $lte: todayEnd },
-        status: { $in: ["PLANNED", "IN_PROGRESS"] },
+        $or: [
+          { status: "IN_PROGRESS" },
+          { status: "PLANNED", date: { $gte: todayStart, $lte: todayEnd } },
+        ],
       })
         .populate({ path: "driver", populate: { path: "vehicle" } })
         .lean(),

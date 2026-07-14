@@ -1,0 +1,78 @@
+# Volalte — full stack: mongo + engine (internal) + api + web.
+# Only `web` (and optionally `api`) are exposed to the host.
+services:
+  mongo:
+    image: mongo:7
+    container_name: volalte-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    networks: [volalte]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  engine:
+    build:
+      context: ../LogisticEngine
+    container_name: volalte-engine
+    restart: unless-stopped
+    environment:
+      - ENGINE_API_KEY=${ENGINE_API_KEY:-change-me-engine-key}
+      - ENGINE_CORS_ORIGINS=${ENGINE_CORS_ORIGINS:-http://localhost:8090}
+    networks: [volalte]
+    # Internal only — no host ports. Only the api service calls it.
+    expose:
+      - "8000"
+
+  api:
+    build:
+      context: .
+    container_name: volalte-api
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      engine:
+        condition: service_started
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGO_URI=mongodb://mongo:27017/volalte
+      - ENGINE_URL=http://engine:8000
+      - ENGINE_API_KEY=${ENGINE_API_KEY:-change-me-engine-key}
+      - SIGNUS_MODE=${SIGNUS_MODE:-mock}
+      - SIGNUS_USER=${SIGNUS_USER:-}
+      - SIGNUS_PASS=${SIGNUS_PASS:-}
+      - SIGNUS_CRC_CODE=${SIGNUS_CRC_CODE:-R0805}
+      - JWT_SECRET=${JWT_SECRET:-change-me-access-secret}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-me-refresh-secret}
+      - WEB_ORIGIN=${WEB_ORIGIN:-http://localhost:8090}
+      - COMPANY_NAME=${COMPANY_NAME:-Volalte}
+    networks: [volalte]
+    expose:
+      - "3000"
+    # Uncomment to hit the API directly from the host (debugging):
+    # ports:
+    #   - "3001:3000"
+
+  web:
+    build:
+      context: ./frontend
+    container_name: volalte-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks: [volalte]
+    ports:
+      - "${WEB_PORT:-8090}:80"
+
+volumes:
+  mongo-data:
+
+networks:
+  volalte:
+    driver: bridge

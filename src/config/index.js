@@ -34,6 +34,9 @@ module.exports = {
   ENGINE_URL: process.env.ENGINE_URL || "http://localhost:8000",
   ENGINE_API_KEY: process.env.ENGINE_API_KEY || "",
   ENGINE_TIMEOUT_MS: parseInt(process.env.ENGINE_TIMEOUT_MS, 10) || 90000,
+  // Solver wall-clock budget. Short enough for snappy planning, long enough for
+  // good routes on typical daily volumes (~30–100 garages).
+  OPTIMIZE_TIME_LIMIT_SECONDS: parseInt(process.env.OPTIMIZE_TIME_LIMIT_SECONDS, 10) || 15,
 
   // Sync cron (node-cron expression). Default: every hour at minute 5.
   SYNC_CRON: process.env.SYNC_CRON || "5 * * * *",

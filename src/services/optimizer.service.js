@@ -88,6 +88,7 @@ function assembleRequest({ demands, drivers, settings, planDate }) {
     urgencyThresholdDays: settings.urgencyThresholdDays ?? 2,
     driverTimeBudgetHours: settings.workdayLengthHours ?? 9,
     workdayStartHour: settings.workdayStartHour ?? 8,
+    timeLimitSeconds: config.OPTIMIZE_TIME_LIMIT_SECONDS,
   };
 }
 
