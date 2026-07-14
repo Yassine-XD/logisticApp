@@ -51,6 +51,19 @@ async function run() {
   await mongoose.connect(config.MONGO_URI);
   console.log(`Connected to ${config.MONGO_URI}`);
 
+  // ── Optional reset (RESET=1 or --reset): clears tours/plans and
+  //    returns every demand to a clean NEW/unassigned state. ─────
+  const reset = process.env.RESET === "1" || process.argv.includes("--reset");
+  if (reset) {
+    const db = mongoose.connection.db;
+    await db.collection("tours").deleteMany({});
+    await db.collection("plans").deleteMany({});
+    const r = await db
+      .collection("demands")
+      .updateMany({}, { $set: { status: "NEW" }, $unset: { assigned: "", collectedAt: "" } });
+    console.log(`✓ Reset: cleared tours/plans, reset ${r.modifiedCount} demands to NEW`);
+  }
+
   // ── Settings ──────────────────────────────────────────────
   await Settings.updateSettings({
     companyName: "Volalte Demo",
